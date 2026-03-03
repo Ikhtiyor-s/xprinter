@@ -444,9 +444,20 @@ class PrinterDlg(tk.Toplevel):
         self._checkvars = {}           # product_id → BooleanVar
         self._prod_loading = False
         self.title("Printer" + (" tahrirlash" if data else " qo'shish"))
-        self.geometry("500x680")
-        self.resizable(False, True)
         self.configure(bg='#1a1a2e')
+        self.resizable(True, True)
+
+        # Ekran o'lchamiga moslash
+        self.update_idletasks()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        w  = min(520, sw - 60)
+        h  = min(700, sh - 80)
+        x  = (sw - w) // 2
+        y  = max(20, (sh - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.minsize(400, 480)
+
         self.transient(parent); self.grab_set()
         self._build(data or {})
         self._sync()
@@ -465,131 +476,157 @@ class PrinterDlg(tk.Toplevel):
         e.insert(0, val); return e
 
     def _build(self, d):
-        p = dict(padx=20, pady=5)
+        fp = dict(padx=16, pady=4)
 
-        # ── Detected printers (auto-scan)
-        dp = tk.Frame(self, bg='#0f3460', padx=12, pady=8)
+        # ══ YUQORI QISM: har doim ko'rinadigan maydonlar (fixed) ════════
+        top = tk.Frame(self, bg='#1a1a2e')
+        top.pack(side='top', fill='x')
+
+        # Detected printers (collapsible-style, max 4 ta ko'rinadi)
+        dp = tk.Frame(top, bg='#0f3460', padx=12, pady=6)
         dp.pack(fill='x')
         dh = tk.Frame(dp, bg='#0f3460'); dh.pack(fill='x')
         tk.Label(dh, text="🔍 Topilgan printerlar",
                  font=('Segoe UI',9,'bold'), fg='#00d4aa', bg='#0f3460').pack(side='left')
-        tk.Button(dh, text="🔄 Yangilash", command=self._refresh_detected,
+        tk.Button(dh, text="🔄", command=self._refresh_detected,
                   bg='#16213e', fg='#aaa', relief='flat',
                   font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='right')
+        # Max 4 ta printer ko'rinsin (scroll emas, kichik ekran uchun)
         self._det_frame = tk.Frame(dp, bg='#0f3460')
-        self._det_frame.pack(fill='x', pady=(6,0))
+        self._det_frame.pack(fill='x', pady=(4,0))
         self._populate_detected()
 
-        # ── Name
-        r = tk.Frame(self, bg='#1a1a2e'); r.pack(fill='x', **p)
-        self._lbl(r,"Printer nomi *").pack(side='left')
-        self._name = self._entry(r, d.get('name',''))
+        # Printer nomi
+        r = tk.Frame(top, bg='#1a1a2e'); r.pack(fill='x', **fp)
+        self._lbl(r, "Printer nomi *").pack(side='left')
+        self._name = self._entry(r, d.get('name', ''))
         self._name.pack(side='left', fill='x', expand=True)
-        tk.Label(self, text="  Serverda ko'rsatilgan nom bilan aynan mos bo'lsin",
-                 font=('Segoe UI',8), fg='#555', bg='#1a1a2e').pack(anchor='w', padx=20)
+        tk.Label(top, text="  Server printer nomiga aynan mos bo'lsin",
+                 font=('Segoe UI',8), fg='#444', bg='#1a1a2e').pack(anchor='w', padx=16)
 
-        # Connection
-        r2 = tk.Frame(self, bg='#1a1a2e'); r2.pack(fill='x', **p)
-        self._lbl(r2,"Ulanish turi *").pack(side='left')
-        self._conn = tk.StringVar(value=d.get('connection','network'))
-        for v,t in [('network','🌐 Tarmoq (IP)'),('usb','🖨 USB/Windows'),('auto','☁ Auto')]:
+        # Ulanish turi
+        r2 = tk.Frame(top, bg='#1a1a2e'); r2.pack(fill='x', **fp)
+        self._lbl(r2, "Ulanish turi *").pack(side='left')
+        self._conn = tk.StringVar(value=d.get('connection', 'network'))
+        for v, t in [('network','🌐 Tarmoq'), ('usb','🖨 USB'), ('auto','☁ Auto')]:
             tk.Radiobutton(r2, text=t, variable=self._conn, value=v,
                            bg='#1a1a2e', fg='white', selectcolor='#0f3460',
                            activebackground='#1a1a2e', font=('Segoe UI',9),
-                           command=self._sync).pack(side='left', padx=5)
+                           command=self._sync).pack(side='left', padx=6)
 
-        # IP
-        self._nf = tk.Frame(self, bg='#1a1a2e')
-        self._nf.pack(fill='x', padx=20)
-        rn = tk.Frame(self._nf, bg='#1a1a2e'); rn.pack(fill='x', pady=3)
-        self._lbl(rn,"IP manzil *").pack(side='left')
-        self._ip   = self._entry(rn, d.get('ip',''))
+        # IP / USB (conditional)
+        self._nf = tk.Frame(top, bg='#1a1a2e')
+        self._nf.pack(fill='x', padx=16)
+        rn = tk.Frame(self._nf, bg='#1a1a2e'); rn.pack(fill='x', pady=2)
+        self._lbl(rn, "IP manzil *").pack(side='left')
+        self._ip   = self._entry(rn, d.get('ip', ''))
         self._ip.pack(side='left', fill='x', expand=True)
-        self._lbl(rn,"  Port").pack(side='left')
-        self._port = self._entry(rn, str(d.get('port',9100)))
+        self._lbl(rn, "  Port").pack(side='left')
+        self._port = self._entry(rn, str(d.get('port', 9100)))
         self._port.config(width=7); self._port.pack(side='left')
 
-        # USB
-        self._uf = tk.Frame(self, bg='#1a1a2e')
-        self._uf.pack(fill='x', padx=20)
-        ru = tk.Frame(self._uf, bg='#1a1a2e'); ru.pack(fill='x', pady=3)
-        self._lbl(ru,"Printer nomi *").pack(side='left')
-        self._usb = tk.StringVar(value=d.get('usb',''))
-        self._cb = ttk.Combobox(ru, textvariable=self._usb, font=('Segoe UI',10))
+        self._uf = tk.Frame(top, bg='#1a1a2e')
+        self._uf.pack(fill='x', padx=16)
+        ru = tk.Frame(self._uf, bg='#1a1a2e'); ru.pack(fill='x', pady=2)
+        self._lbl(ru, "Printer nomi *").pack(side='left')
+        self._usb = tk.StringVar(value=d.get('usb', ''))
+        self._cb  = ttk.Combobox(ru, textvariable=self._usb, font=('Segoe UI',10))
         self._cb['values'] = self._lps
         self._cb.pack(side='left', fill='x', expand=True)
 
-        # Paper width
-        rw = tk.Frame(self, bg='#1a1a2e'); rw.pack(fill='x', **p)
-        self._lbl(rw,"Qog'oz kengligi").pack(side='left')
-        self._pw = tk.StringVar(value=str(d.get('paper_width',80)))
-        for v,t in [('80','80 mm'),('58','58 mm')]:
+        # Qog'oz kengligi
+        rw = tk.Frame(top, bg='#1a1a2e'); rw.pack(fill='x', **fp)
+        self._lbl(rw, "Qog'oz kengligi").pack(side='left')
+        self._pw = tk.StringVar(value=str(d.get('paper_width', 80)))
+        for v, t in [('80','80 mm'), ('58','58 mm')]:
             tk.Radiobutton(rw, text=t, variable=self._pw, value=v,
                            bg='#1a1a2e', fg='white', selectcolor='#0f3460',
-                           activebackground='#1a1a2e', font=('Segoe UI',9)).pack(side='left',padx=8)
+                           activebackground='#1a1a2e', font=('Segoe UI',9)).pack(side='left', padx=8)
 
-        # ── Mahsulotlar bo'limi ──────────────────────────────────
-        tk.Frame(self, bg='#0f3460', height=1).pack(fill='x', pady=(8,0))
-        ph = tk.Frame(self, bg='#1a1a2e', padx=16, pady=5); ph.pack(fill='x')
-        tk.Label(ph, text="🍽  Mahsulotlar",
-                 font=('Segoe UI',10,'bold'), fg='#e0e0e0', bg='#1a1a2e').pack(side='left')
-        self._prod_count_lbl = tk.Label(ph, text="",
+        # ══ PASTKI QISM: Saqlash/Bekor — side='bottom', har doim ko'rinadi ══
+        bf = tk.Frame(self, bg='#16213e'); bf.pack(side='bottom', fill='x', padx=0, pady=0)
+        tk.Frame(bf, bg='#0f3460', height=1).pack(fill='x')
+        btn_row = tk.Frame(bf, bg='#16213e'); btn_row.pack(fill='x', padx=16, pady=8)
+        tk.Button(btn_row, text="✓ Saqlash", command=self._ok,
+                  bg='#00b894', fg='white', font=('Segoe UI',10,'bold'),
+                  relief='flat', padx=20, pady=7, cursor='hand2').pack(side='right', padx=(8,0))
+        tk.Button(btn_row, text="Bekor", command=self.destroy,
+                  bg='#444', fg='white', font=('Segoe UI',10),
+                  relief='flat', padx=16, pady=7, cursor='hand2').pack(side='right')
+
+        # ══ O'RTA QISM: Mahsulotlar — qolgan joyni to'ldiradi, scroll bilan ════
+        tk.Frame(self, bg='#0f3460', height=1).pack(fill='x')
+        mh = tk.Frame(self, bg='#1a1a2e', padx=16, pady=4)
+        mh.pack(fill='x')
+        tk.Label(mh, text="🍽  Mahsulotlar",
+                 font=('Segoe UI',9,'bold'), fg='#e0e0e0', bg='#1a1a2e').pack(side='left')
+        self._prod_count_lbl = tk.Label(mh, text="",
                  font=('Segoe UI',8), fg='#555', bg='#1a1a2e')
-        self._prod_count_lbl.pack(side='left', padx=6)
-        abf = tk.Frame(ph, bg='#1a1a2e'); abf.pack(side='right')
+        self._prod_count_lbl.pack(side='left', padx=4)
+        abf = tk.Frame(mh, bg='#1a1a2e'); abf.pack(side='right')
         tk.Button(abf, text="☑ Barchasi", command=self._check_all,
                   bg='#0f3460', fg='#aaa', relief='flat',
                   font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='left', padx=2)
         tk.Button(abf, text="☐ Hech biri", command=self._uncheck_all,
                   bg='#0f3460', fg='#aaa', relief='flat',
-                  font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='left', padx=2)
+                  font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='left')
 
-        # Buttons — avval bottom ga pack (expand frame ularni pastga tushirmasligi uchun)
-        bf = tk.Frame(self, bg='#1a1a2e'); bf.pack(side='bottom', fill='x', padx=20, pady=10)
-        tk.Button(bf, text="✓ Saqlash", command=self._ok,
-                  bg='#00b894', fg='white', font=('Segoe UI',10,'bold'),
-                  relief='flat', padx=16, pady=6, cursor='hand2').pack(side='right', padx=(8,0))
-        tk.Button(bf, text="Bekor", command=self.destroy,
-                  bg='#0f3460', fg='white', font=('Segoe UI',10),
-                  relief='flat', padx=14, pady=6, cursor='hand2').pack(side='right')
+        # Scrollable products container — fill='both', expand=True (qolgan joy)
+        pc = tk.Frame(self, bg='#0d1117')
+        pc.pack(fill='both', expand=True, padx=0, pady=0)
 
-        # Scrollable mahsulotlar frame
-        prod_container = tk.Frame(self, bg='#16213e', padx=4, pady=4)
-        prod_container.pack(fill='both', expand=True, padx=16, pady=(0,4))
-
-        self._prod_canvas = tk.Canvas(prod_container, bg='#0d1117',
-                                       highlightthickness=0, height=160)
-        vsb = ttk.Scrollbar(prod_container, orient='vertical',
-                             command=self._prod_canvas.yview)
+        self._prod_canvas = tk.Canvas(pc, bg='#0d1117', highlightthickness=0)
+        vsb = ttk.Scrollbar(pc, orient='vertical', command=self._prod_canvas.yview)
         self._prod_sf = tk.Frame(self._prod_canvas, bg='#0d1117')
         self._prod_sf.bind('<Configure>', lambda e: self._prod_canvas.configure(
             scrollregion=self._prod_canvas.bbox('all')))
-        self._prod_win = self._prod_canvas.create_window(
-            (0, 0), window=self._prod_sf, anchor='nw')
+        self._prod_win = self._prod_canvas.create_window((0, 0), window=self._prod_sf, anchor='nw')
         self._prod_canvas.configure(yscrollcommand=vsb.set)
         self._prod_canvas.bind('<Configure>',
             lambda e: self._prod_canvas.itemconfigure(self._prod_win, width=e.width))
-        self._prod_canvas.bind_all('<MouseWheel>',
-            lambda e: self._prod_canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units'))
+        # MouseWheel scroll (faqat products canvas ustida)
+        self._prod_canvas.bind('<Enter>',
+            lambda e: self._prod_canvas.bind_all('<MouseWheel>', self._on_scroll))
+        self._prod_canvas.bind('<Leave>',
+            lambda e: self._prod_canvas.unbind_all('<MouseWheel>'))
         vsb.pack(side='right', fill='y')
         self._prod_canvas.pack(side='left', fill='both', expand=True)
 
-        # Status label (yuklanmoqda yoki hint)
+        # Loading status
         self._prod_status = tk.Label(self._prod_sf,
             text="⏳ Mahsulotlar yuklanmoqda..." if self._creds else
-                 "ℹ  Mahsulotlar: tizimga kirish kerak",
-            font=('Segoe UI',9), fg='#666', bg='#0d1117', anchor='w')
-        self._prod_status.pack(fill='x', padx=8, pady=8)
+                 "ℹ  Tizimga kirish kerak",
+            font=('Segoe UI',9), fg='#555', bg='#0d1117', anchor='w')
+        self._prod_status.pack(fill='x', padx=12, pady=10)
+
+    def _on_scroll(self, event):
+        self._prod_canvas.yview_scroll(-1 if event.delta > 0 else 1, 'units')
 
     def _populate_detected(self):
         for w in self._det_frame.winfo_children():
             w.destroy()
         if not self._lps:
-            tk.Label(self._det_frame, text="  Hech qanday printer topilmadi",
-                     font=('Segoe UI',8), fg='#666', bg='#0f3460').pack(anchor='w')
+            tk.Label(self._det_frame, text="  Printer topilmadi",
+                     font=('Segoe UI',8), fg='#555', bg='#0f3460').pack(anchor='w')
             return
+        # Max 3 ta ko'rinadigan, scroll bilan
+        det_canvas = tk.Canvas(self._det_frame, bg='#0f3460',
+                                highlightthickness=0,
+                                height=min(len(self._lps), 3) * 26)
+        det_vsb = ttk.Scrollbar(self._det_frame, orient='vertical',
+                                  command=det_canvas.yview)
+        det_inner = tk.Frame(det_canvas, bg='#0f3460')
+        det_inner.bind('<Configure>', lambda e: det_canvas.configure(
+            scrollregion=det_canvas.bbox('all')))
+        det_win = det_canvas.create_window((0, 0), window=det_inner, anchor='nw')
+        det_canvas.configure(yscrollcommand=det_vsb.set)
+        det_canvas.bind('<Configure>',
+            lambda e: det_canvas.itemconfigure(det_win, width=e.width))
+        if len(self._lps) > 3:
+            det_vsb.pack(side='right', fill='y')
+        det_canvas.pack(side='left', fill='x', expand=True)
         for pname in self._lps:
-            btn = tk.Button(self._det_frame, text=f"🖨  {pname}",
+            btn = tk.Button(det_inner, text=f"🖨  {pname}",
                             command=lambda n=pname: self._select_detected(n),
                             bg='#16213e', fg='#e0e0e0', relief='flat',
                             font=('Segoe UI',9), anchor='w', cursor='hand2',
