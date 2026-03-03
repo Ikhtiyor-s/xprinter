@@ -969,13 +969,15 @@ class NonborMenuView(APIView):
         if not cred.check_password(password) or cred.business_id != business_id:
             return Response({'success': False, 'error': 'Auth xato'}, status=401)
 
-        # Nonbor config
-        try:
-            config = NonborConfig.objects.get(business_id=business_id, is_active=True)
-        except NonborConfig.DoesNotExist:
+        # Nonbor config: avval shu biznes uchun, bo'lmasa ixtiyoriy aktiv config
+        config = (
+            NonborConfig.objects.filter(business_id=business_id, is_active=True).first()
+            or NonborConfig.objects.filter(is_active=True).first()
+        )
+        if not config:
             return Response({
                 'success': False,
-                'error': 'Nonbor API sozlamasi topilmadi. Admin sozlash kerak.',
+                'error': 'Nonbor API sozlamasi topilmadi. Admin "Nonbor API" tabida sozlash kerak.',
             }, status=404)
 
         # Nonbor API dan mahsulotlar
