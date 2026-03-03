@@ -954,15 +954,26 @@ class SettingsWindow:
         style.configure('T.Treeview.Heading', background=BG3, foreground=ACCENT,
                          font=('Segoe UI',9,'bold'))
         style.map('T.Treeview', background=[('selected',BG3)])
-        cols = ('name','conn','addr','width')
+        cols = ('name','conn','addr','width','prods')
         self._tree = ttk.Treeview(tf, style='T.Treeview',
                                    columns=cols, show='headings', height=5)
-        for col,(hd,w) in zip(cols,[("Printer nomi (server bilan mos)",200),
-                                     ("Ulanish",90),("Manzil",240),("Qog'oz",70)]):
+        for col,(hd,w) in zip(cols,[("Printer nomi",160),
+                                     ("Ulanish",80),("Manzil",190),
+                                     ("Qog'oz",60),("Mahsulotlar",140)]):
             self._tree.heading(col, text=hd)
             self._tree.column(col, width=w, anchor='w')
         self._tree.pack(fill='x')
         self._tree.bind('<Double-1>', lambda e: self._edit())
+        self._tree.bind('<<TreeviewSelect>>', self._on_tree_select)
+
+        # Mahsulotlar detail panel (tanlangan printer uchun)
+        self._prod_panel = tk.Frame(f, bg=BG2, padx=16, pady=6)
+        self._prod_panel.pack(fill='x', padx=16, pady=(2,0))
+        self._prod_detail = tk.Label(self._prod_panel,
+            text="Printer tanlang — mahsulotlar ko'rinadi",
+            font=('Segoe UI',8), fg=FGD, bg=BG2, anchor='w',
+            wraplength=620, justify='left')
+        self._prod_detail.pack(fill='x')
 
         # Log
         tk.Frame(f, bg=BG3, height=1).pack(fill='x', pady=(8,0))
@@ -1001,8 +1012,35 @@ class SettingsWindow:
             if conn=='network':   addr=f"{p.get('ip','')}:{p.get('port',9100)}"; ct='🌐 Tarmoq'
             elif conn=='usb':     addr=p.get('usb',''); ct='🖨 USB'
             else:                 addr='(serverdan)';   ct='☁ Auto'
+            pids = p.get('product_ids', [])
+            pnames = p.get('product_names', {})
+            if pids:
+                names = [pnames.get(str(pid), pnames.get(pid, f'#{pid}')) for pid in pids]
+                prod_txt = f"✓ {len(pids)} ta: {', '.join(names[:2])}{'...' if len(names)>2 else ''}"
+            else:
+                prod_txt = "— barcha"
             self._tree.insert('','end', iid=p['id'],
-                               values=(p.get('name',''),ct,addr,f"{p.get('paper_width',80)}mm"))
+                               values=(p.get('name',''), ct, addr,
+                                       f"{p.get('paper_width',80)}mm", prod_txt))
+
+    def _on_tree_select(self, event=None):
+        """Printer tanlaganda mahsulotlarni pastda ko'rsatish"""
+        p = self._sel()
+        if not p:
+            self._prod_detail.config(
+                text="Printer tanlang — mahsulotlar ko'rinadi", fg=FGD)
+            return
+        pids = p.get('product_ids', [])
+        pnames = p.get('product_names', {})
+        pname = p.get('name', '')
+        if not pids:
+            self._prod_detail.config(
+                text=f"🖨  {pname}:  barcha mahsulotlar (filter yo'q)", fg='#888')
+            return
+        names = [pnames.get(str(pid), pnames.get(pid, f'#{pid}')) for pid in pids]
+        self._prod_detail.config(
+            text=f"🖨  {pname}  →  " + "  |  ".join(names),
+            fg=ACCENT)
 
     def _sel(self):
         s = self._tree.selection()
