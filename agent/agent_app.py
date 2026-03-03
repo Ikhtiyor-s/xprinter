@@ -689,13 +689,14 @@ class PrinterDlg(tk.Toplevel):
             self._prod_count_lbl.config(text="— 0 ta")
             return
 
-        # Mahsulot → printer nomi mapping (joriy printer tashqarisida)
+        # Mahsulot → printer nomi mapping (barcha printerlar)
         prod_to_printers = {}
         for pr in self._all_printers:
-            if pr.get('id') == self._current_pid:
-                continue
+            pr_name = pr.get('name', '?')
+            is_current = pr.get('id') == self._current_pid
             for pid2 in pr.get('product_ids', []):
-                prod_to_printers.setdefault(pid2, []).append(pr.get('name', '?'))
+                label = f"{pr_name} ✎" if is_current else pr_name
+                prod_to_printers.setdefault(pid2, []).append(label)
 
         # Kategoriya bo'yicha guruhlash
         cats = {}
