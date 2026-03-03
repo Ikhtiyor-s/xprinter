@@ -981,35 +981,83 @@ class NonborMenuView(APIView):
             }, status=404)
 
         # Nonbor API dan mahsulotlar
+        # products/?business=<id> — barcha mahsulotlar (menu_categoriyasiz ham)
+        # products-by-category/ faqat menu_category ga biriktirilganlarni qaytaradi
         api = NonborAPI(config)
-        all_products = []
+        all_raw = []
         page = 1
         while True:
             data = api._get(
-                f'business/{business_id}/products-by-category/',
-                params={'page': page, 'page_size': 100}
+                'products/',
+                params={'business': business_id, 'page': page, 'page_size': 100}
             )
             if not data:
                 break
-            result = data.get('result', []) if isinstance(data, dict) else data
+            result = data.get('result', data) if isinstance(data, dict) else data
             if isinstance(result, dict):
                 result = result.get('results', [])
             if not result:
                 break
-            all_products.extend(result)
+            all_raw.extend(result)
             if len(result) < 100:
                 break
             page += 1
 
+        # bo'sh bo'lsa products-by-category/ ga fallback
+        if not all_raw:
+            page = 1
+            while True:
+                data = api._get(
+                    f'business/{business_id}/products-by-category/',
+                    params={'page': page, 'page_size': 100}
+                )
+                if not data:
+                    break
+                result = data.get('result', []) if isinstance(data, dict) else data
+                if isinstance(result, dict):
+                    result = result.get('results', [])
+                if not result:
+                    break
+                all_raw.extend(result)
+                if len(result) < 100:
+                    break
+                page += 1
+
         products = []
-        for p in all_products:
+        seen_ids = set()
+        for p in all_raw:
+            pid = p.get('id')
+            if pid in seen_ids:
+                continue
+            seen_ids.add(pid)
             mc = p.get('menu_category') or {}
             cat = p.get('category') or {}
+            # Kategoriya nomi: menu_category ustun, bo'lmasa category
+            # Encoding xatosi bo'lgan (garbled) nomlar uchun category.name ga fallback
+            mc_name = mc.get('name', '') or ''
+            cat_name_raw = cat.get('name', '') or ''
+            # Agar mc_name o'qilishi qiyin (lot of non-latin/non-uzbek) bo'lsa,
+            # latin-1 → utf-8 decode urinib ko'r, aks holda category.name ishlatamiz
+            def _safe_cat(s, fallback):
+                if not s:
+                    return fallback or 'Boshqa'
+                # Faqat ASCII + O'zbek/Ruscha harflar bo'lsa yaxshi
+                printable = sum(1 for c in s if c.isalpha() and ord(c) < 0x500)
+                total = len(s)
+                if total > 0 and printable / total < 0.5:
+                    # Garbled — latin-1→utf-8 urinib ko'r
+                    try:
+                        fixed = s.encode('latin-1').decode('utf-8')
+                        return fixed
+                    except Exception:
+                        return fallback or 'Boshqa'
+                return s
+            cat_name = _safe_cat(mc_name, cat_name_raw) or cat_name_raw or 'Boshqa'
             products.append({
-                'id': p.get('id'),
+                'id': pid,
                 'name': p.get('name') or p.get('title', ''),
                 'category_id': mc.get('id') or cat.get('id'),
-                'category_name': mc.get('name') or cat.get('name') or 'Boshqa',
+                'category_name': cat_name,
             })
 
         return Response({
