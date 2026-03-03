@@ -1078,3 +1078,128 @@ class PrinterAgentSyncView(APIView):
             'created': created,
             'products_assigned': len(product_ids),
         })
+
+
+# ============================================================
+# AGENT CREDENTIAL CRUD (Print Agent login/parol boshqaruvi)
+# ============================================================
+
+class AgentCredentialListView(APIView):
+    """GET /api/v2/agent-credential/list/ - Barcha agent loginlar"""
+
+    def get(self, request):
+        business_id = request.GET.get('business_id')
+        qs = AgentCredential.objects.all().order_by('-created_at')
+        if business_id:
+            qs = qs.filter(business_id=business_id)
+        data = []
+        for c in qs:
+            data.append({
+                'id': c.id,
+                'business_id': c.business_id,
+                'business_name': c.business_name,
+                'username': c.username,
+                'password': c.password,
+                'is_active': c.is_active,
+                'note': c.note,
+                'created_at': c.created_at.isoformat(),
+            })
+        return Response({'success': True, 'result': data})
+
+
+class AgentCredentialCreateView(APIView):
+    """POST /api/v2/agent-credential/create/ - Yangi agent login qo'shish"""
+
+    def post(self, request):
+        business_id = request.data.get('business_id')
+        business_name = request.data.get('business_name', '')
+        username = request.data.get('username', '').strip()
+        password = request.data.get('password', '').strip()
+        note = request.data.get('note', '')
+        is_active = request.data.get('is_active', True)
+
+        if not business_id or not username or not password:
+            return Response({
+                'success': False,
+                'error': 'business_id, username va password majburiy',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if AgentCredential.objects.filter(username=username).exists():
+            return Response({
+                'success': False,
+                'error': f"'{username}' username allaqachon mavjud",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        cred = AgentCredential.objects.create(
+            business_id=business_id,
+            business_name=business_name,
+            username=username,
+            password=password,
+            note=note,
+            is_active=is_active,
+        )
+        return Response({
+            'success': True,
+            'result': {
+                'id': cred.id,
+                'business_id': cred.business_id,
+                'business_name': cred.business_name,
+                'username': cred.username,
+                'password': cred.password,
+                'is_active': cred.is_active,
+                'note': cred.note,
+                'created_at': cred.created_at.isoformat(),
+            },
+        }, status=status.HTTP_201_CREATED)
+
+
+class AgentCredentialUpdateView(APIView):
+    """PUT /api/v2/agent-credential/{id}/update/"""
+
+    def put(self, request, pk):
+        try:
+            cred = AgentCredential.objects.get(pk=pk)
+        except AgentCredential.DoesNotExist:
+            return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
+
+        for field in ('business_name', 'password', 'note', 'is_active'):
+            if field in request.data:
+                setattr(cred, field, request.data[field])
+
+        new_username = request.data.get('username', '').strip()
+        if new_username and new_username != cred.username:
+            if AgentCredential.objects.filter(username=new_username).exists():
+                return Response({
+                    'success': False,
+                    'error': f"'{new_username}' username allaqachon mavjud",
+                }, status=status.HTTP_400_BAD_REQUEST)
+            cred.username = new_username
+
+        cred.save()
+        return Response({
+            'success': True,
+            'result': {
+                'id': cred.id,
+                'business_id': cred.business_id,
+                'business_name': cred.business_name,
+                'username': cred.username,
+                'password': cred.password,
+                'is_active': cred.is_active,
+                'note': cred.note,
+                'created_at': cred.created_at.isoformat(),
+            },
+        })
+
+    patch = put
+
+
+class AgentCredentialDeleteView(APIView):
+    """DELETE /api/v2/agent-credential/{id}/delete/"""
+
+    def delete(self, request, pk):
+        try:
+            cred = AgentCredential.objects.get(pk=pk)
+        except AgentCredential.DoesNotExist:
+            return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
+        cred.delete()
+        return Response({'success': True})

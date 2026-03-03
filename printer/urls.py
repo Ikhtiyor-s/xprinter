@@ -57,6 +57,14 @@ urlpatterns = [
     path('nonbor-config/<int:business_id>/delete/', views.NonborConfigDeleteView.as_view(), name='nonbor-config-delete'),
 
     # ============================================================
+    # AGENT CREDENTIAL CRUD (Print Agent login/parol)
+    # ============================================================
+    path('agent-credential/list/', views.AgentCredentialListView.as_view(), name='agent-cred-list'),
+    path('agent-credential/create/', views.AgentCredentialCreateView.as_view(), name='agent-cred-create'),
+    path('agent-credential/<int:pk>/update/', views.AgentCredentialUpdateView.as_view(), name='agent-cred-update'),
+    path('agent-credential/<int:pk>/delete/', views.AgentCredentialDeleteView.as_view(), name='agent-cred-delete'),
+
+    # ============================================================
     # NONBOR POLLING (avtomatik buyurtma olish)
     # ============================================================
     path('nonbor/poll/<int:business_id>/', views.NonborPollView.as_view(), name='nonbor-poll'),
