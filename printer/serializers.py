@@ -1,0 +1,324 @@
+from rest_framework import serializers
+from .models import Printer, PrinterCategory, PrinterProduct, PrintJob, NonborConfig
+
+
+# ============================================================
+# PRINTER SERIALIZERS
+# ============================================================
+
+class PrinterCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Printer
+        fields = [
+            'business_id', 'name', 'connection_type',
+            'ip_address', 'port', 'usb_path',
+            'printer_model', 'paper_width',
+            'is_active', 'auto_print', 'is_admin',
+        ]
+
+    def validate(self, data):
+        conn = data.get('connection_type', Printer.CONNECTION_NETWORK)
+        if conn == Printer.CONNECTION_NETWORK:
+            if not data.get('ip_address'):
+                raise serializers.ValidationError({
+                    'ip_address': "Tarmoq printer uchun IP manzil kiritish shart."
+                })
+        elif conn == Printer.CONNECTION_USB:
+            if not data.get('usb_path'):
+                raise serializers.ValidationError({
+                    'usb_path': "USB printer uchun path kiritish shart."
+                })
+        return data
+
+
+class PrinterUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Printer
+        fields = [
+            'name', 'connection_type',
+            'ip_address', 'port', 'usb_path',
+            'printer_model', 'paper_width',
+            'is_active', 'auto_print', 'is_admin',
+        ]
+
+    def validate(self, data):
+        instance = self.instance
+        conn = data.get('connection_type', instance.connection_type if instance else Printer.CONNECTION_NETWORK)
+        ip = data.get('ip_address', instance.ip_address if instance else None)
+        usb = data.get('usb_path', instance.usb_path if instance else None)
+
+        if conn == Printer.CONNECTION_NETWORK and not ip:
+            raise serializers.ValidationError({
+                'ip_address': "Tarmoq printer uchun IP manzil kiritish shart."
+            })
+        elif conn == Printer.CONNECTION_USB and not usb:
+            raise serializers.ValidationError({
+                'usb_path': "USB printer uchun path kiritish shart."
+            })
+        return data
+
+
+class PrinterListSerializer(serializers.ModelSerializer):
+    categories_count = serializers.SerializerMethodField()
+    products_count = serializers.SerializerMethodField()
+    connection_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Printer
+        fields = [
+            'id', 'business_id', 'name', 'connection_type',
+            'ip_address', 'port', 'usb_path',
+            'printer_model', 'paper_width',
+            'is_active', 'auto_print', 'is_admin',
+            'categories_count', 'products_count', 'connection_info',
+            'created_at', 'updated_at',
+        ]
+
+    def get_categories_count(self, obj):
+        return obj.categories.count()
+
+    def get_products_count(self, obj):
+        return obj.products.count()
+
+    def get_connection_info(self, obj):
+        if obj.connection_type == Printer.CONNECTION_NETWORK:
+            return f"{obj.ip_address}:{obj.port}"
+        return obj.usb_path or ''
+
+
+class PrinterDetailSerializer(serializers.ModelSerializer):
+    categories = serializers.SerializerMethodField()
+    products = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Printer
+        fields = [
+            'id', 'business_id', 'name', 'connection_type',
+            'ip_address', 'port', 'usb_path',
+            'printer_model', 'paper_width',
+            'is_active', 'auto_print', 'is_admin',
+            'categories', 'products',
+            'created_at', 'updated_at',
+        ]
+
+    def get_categories(self, obj):
+        return PrinterCategorySerializer(
+            obj.categories.all(), many=True
+        ).data
+
+    def get_products(self, obj):
+        return PrinterProductSerializer(
+            obj.products.all(), many=True
+        ).data
+
+
+# ============================================================
+# PRINTER CATEGORY SERIALIZERS
+# ============================================================
+
+class PrinterCategorySerializer(serializers.ModelSerializer):
+    printer_name = serializers.CharField(source='printer.name', read_only=True)
+
+    class Meta:
+        model = PrinterCategory
+        fields = [
+            'id', 'printer', 'printer_name',
+            'category_id', 'category_name', 'business_id',
+        ]
+
+
+class PrinterCategoryAssignSerializer(serializers.Serializer):
+    """Bitta kategoriyani printerga ulash"""
+    printer_id = serializers.IntegerField()
+    category_id = serializers.IntegerField()
+    category_name = serializers.CharField(max_length=200, required=False, default='')
+    business_id = serializers.IntegerField()
+
+    def validate_printer_id(self, value):
+        if not Printer.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Printer topilmadi.")
+        return value
+
+    def validate(self, data):
+        exists = PrinterCategory.objects.filter(
+            printer_id=data['printer_id'],
+            category_id=data['category_id'],
+        ).exists()
+        if exists:
+            raise serializers.ValidationError(
+                "Bu kategoriya allaqachon shu printerga ulangan."
+            )
+        return data
+
+
+class PrinterCategoryBulkAssignSerializer(serializers.Serializer):
+    """Ko'plab kategoriyalarni printerga ulash"""
+    printer_id = serializers.IntegerField()
+    business_id = serializers.IntegerField()
+    categories = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="[{category_id: int, category_name: str}]"
+    )
+
+    def validate_printer_id(self, value):
+        if not Printer.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Printer topilmadi.")
+        return value
+
+
+# ============================================================
+# PRINTER PRODUCT SERIALIZERS
+# ============================================================
+
+class PrinterProductSerializer(serializers.ModelSerializer):
+    printer_name = serializers.CharField(source='printer.name', read_only=True)
+
+    class Meta:
+        model = PrinterProduct
+        fields = [
+            'id', 'printer', 'printer_name',
+            'product_id', 'product_name', 'business_id',
+        ]
+
+
+class PrinterProductAssignSerializer(serializers.Serializer):
+    """Bitta mahsulotni printerga ulash"""
+    printer_id = serializers.IntegerField()
+    product_id = serializers.IntegerField()
+    product_name = serializers.CharField(max_length=300, required=False, default='')
+    business_id = serializers.IntegerField()
+
+    def validate_printer_id(self, value):
+        if not Printer.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Printer topilmadi.")
+        return value
+
+    def validate(self, data):
+        exists = PrinterProduct.objects.filter(
+            business_id=data['business_id'],
+            product_id=data['product_id'],
+        ).exists()
+        if exists:
+            raise serializers.ValidationError(
+                "Bu mahsulot allaqachon boshqa printerga ulangan. "
+                "Avval eski ulashni o'chiring."
+            )
+        return data
+
+
+class PrinterProductBulkAssignSerializer(serializers.Serializer):
+    """Ko'plab mahsulotlarni printerga ulash"""
+    printer_id = serializers.IntegerField()
+    business_id = serializers.IntegerField()
+    products = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="[{product_id: int, product_name: str}]"
+    )
+
+    def validate_printer_id(self, value):
+        if not Printer.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Printer topilmadi.")
+        return value
+
+
+# ============================================================
+# PRINT JOB SERIALIZERS
+# ============================================================
+
+class PrintJobSerializer(serializers.ModelSerializer):
+    printer_name = serializers.CharField(source='printer.name', read_only=True)
+    can_retry = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = PrintJob
+        fields = [
+            'id', 'printer', 'printer_name',
+            'order_id', 'business_id', 'status',
+            'content', 'items_data',
+            'retry_count', 'max_retries', 'can_retry',
+            'error_message',
+            'created_at', 'printed_at',
+        ]
+
+
+class PrintOrderSerializer(serializers.Serializer):
+    """Buyurtmani chop etish uchun"""
+    business_id = serializers.IntegerField()
+    order_id = serializers.IntegerField()
+    order_number = serializers.CharField(max_length=50, required=False, default='', allow_blank=True)
+    business_name = serializers.CharField(max_length=200, required=False, default='', allow_blank=True)
+    customer_name = serializers.CharField(max_length=200, required=False, default='', allow_blank=True)
+    customer_phone = serializers.CharField(max_length=20, required=False, default='', allow_blank=True)
+    customer_address = serializers.CharField(required=False, default='', allow_blank=True)
+    delivery_method = serializers.CharField(max_length=20, required=False, default='', allow_blank=True)
+    payment_method = serializers.CharField(max_length=20, required=False, default='', allow_blank=True)
+    order_type = serializers.CharField(max_length=20, required=False, default='', allow_blank=True)
+    scheduled_time = serializers.CharField(required=False, default='', allow_blank=True)
+    comment = serializers.CharField(required=False, default='', allow_blank=True)
+    items = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="[{name, quantity, price, product_id, category_id, category_name}]"
+    )
+
+
+class WebhookSerializer(serializers.Serializer):
+    """Nonbor webhook - buyurtma statusi o'zgarganda"""
+    order_id = serializers.IntegerField()
+    business_id = serializers.IntegerField()
+    state = serializers.CharField()
+    order_number = serializers.CharField(required=False, default='', allow_blank=True)
+    business_name = serializers.CharField(required=False, default='', allow_blank=True)
+    customer_name = serializers.CharField(required=False, default='', allow_blank=True)
+    customer_phone = serializers.CharField(required=False, default='', allow_blank=True)
+    customer_address = serializers.CharField(required=False, default='', allow_blank=True)
+    delivery_method = serializers.CharField(required=False, default='', allow_blank=True)
+    payment_method = serializers.CharField(required=False, default='', allow_blank=True)
+    order_type = serializers.CharField(required=False, default='', allow_blank=True)
+    scheduled_time = serializers.CharField(required=False, default='', allow_blank=True)
+    comment = serializers.CharField(required=False, default='', allow_blank=True)
+    items = serializers.ListField(
+        child=serializers.DictField(),
+        required=False, default=list,
+    )
+
+
+# ============================================================
+# NONBOR CONFIG SERIALIZERS
+# ============================================================
+
+class NonborConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NonborConfig
+        fields = [
+            'id', 'business_id', 'business_name',
+            'api_url', 'api_secret', 'seller_id',
+            'poll_enabled', 'poll_interval',
+            'last_poll_at', 'is_active', 'created_at',
+        ]
+        read_only_fields = ['id', 'last_poll_at', 'created_at']
+
+
+class NonborConfigCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NonborConfig
+        fields = [
+            'business_id', 'business_name',
+            'api_url', 'api_secret', 'seller_id',
+            'poll_enabled', 'poll_interval', 'is_active',
+        ]
+
+    def validate_business_id(self, value):
+        if NonborConfig.objects.filter(business_id=value).exists():
+            raise serializers.ValidationError(
+                "Bu biznes uchun allaqachon sozlama mavjud."
+            )
+        return value
+
+
+class NonborConfigUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NonborConfig
+        fields = [
+            'business_name', 'api_url', 'api_secret',
+            'seller_id', 'poll_enabled', 'poll_interval', 'is_active',
+        ]

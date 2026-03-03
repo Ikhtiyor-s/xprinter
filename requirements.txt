@@ -1,0 +1,6 @@
+# Nonbor Printer App - qo'shimcha kutubxonalar
+# Django va DRF allaqachon mavjud bo'lishi kerak
+
+# Hech qanday qo'shimcha kutubxona kerak emas!
+# ESC/POS komandalar va TCP socket Python standart kutubxonasi bilan ishlaydi
+# (socket, struct modullar)

@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.spec
+*.log
+
+# Django
+db.sqlite3
+*.sqlite3
+media/
+
+# Agent config (parollar saqlanadi)
+agent/config.ini
+agent/saved_logins.json
+agent/printers.json
+agent/agent.log
+agent/dist/
+agent/build/
+
+# Env
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
