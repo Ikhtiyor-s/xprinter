@@ -432,16 +432,19 @@ def make_tray_image(active=False):
 
 # ── PRINTER DIALOG ───────────────────────────────────────────
 class PrinterDlg(tk.Toplevel):
-    def __init__(self, parent, local_ps, data=None, credentials=None):
+    def __init__(self, parent, local_ps, data=None, credentials=None, all_printers=None):
         """
         credentials = (server_url, username, password, business_id)
+        all_printers = barcha saqlangan printerlar ro'yxati (mahsulot biriktirishni ko'rsatish uchun)
         """
         super().__init__(parent)
-        self.result     = None
-        self._lps       = local_ps
-        self._creds     = credentials  # (server_url, username, password, business_id)
-        self._products  = []           # [{id, name, category_name}]
-        self._checkvars = {}           # product_id → BooleanVar
+        self.result        = None
+        self._lps          = local_ps
+        self._creds        = credentials  # (server_url, username, password, business_id)
+        self._products     = []           # [{id, name, category_name}]
+        self._checkvars    = {}           # product_id → BooleanVar
+        self._all_printers = all_printers or []
+        self._current_pid  = (data or {}).get('id')  # tahrirlash rejimida joriy printer ID
         self._prod_loading = False
         self.title("Printer" + (" tahrirlash" if data else " qo'shish"))
         self.configure(bg='#1a1a2e')
@@ -686,6 +689,14 @@ class PrinterDlg(tk.Toplevel):
             self._prod_count_lbl.config(text="— 0 ta")
             return
 
+        # Mahsulot → printer nomi mapping (joriy printer tashqarisida)
+        prod_to_printers = {}
+        for pr in self._all_printers:
+            if pr.get('id') == self._current_pid:
+                continue
+            for pid2 in pr.get('product_ids', []):
+                prod_to_printers.setdefault(pid2, []).append(pr.get('name', '?'))
+
         # Kategoriya bo'yicha guruhlash
         cats = {}
         for p in products:
@@ -714,6 +725,13 @@ class PrinterDlg(tk.Toplevel):
                     activeforeground='#e0e0e0',
                     anchor='w', command=self._update_count)
                 cb.pack(side='left', fill='x', expand=True)
+                # Qaysi printerga biriktirilgan
+                assigned = prod_to_printers.get(pid, [])
+                if assigned:
+                    lbl_txt = "🖨 " + ",  ".join(assigned)
+                    tk.Label(row, text=lbl_txt,
+                             font=('Segoe UI', 8), fg='#00d4aa', bg='#0d1117',
+                             anchor='e').pack(side='right', padx=(0, 6))
 
         self._update_count()
 
@@ -1198,7 +1216,7 @@ class SettingsWindow:
         return None
 
     def _add(self):
-        d = PrinterDlg(self.win, local_printers(), credentials=self._creds())
+        d = PrinterDlg(self.win, local_printers(), credentials=self._creds(), all_printers=self._printers)
         self.win.wait_window(d)
         if d.result:
             self._printers.append(d.result)
@@ -1212,7 +1230,7 @@ class SettingsWindow:
     def _edit(self):
         p = self._sel()
         if not p: return
-        d = PrinterDlg(self.win, local_printers(), data=p, credentials=self._creds())
+        d = PrinterDlg(self.win, local_printers(), data=p, credentials=self._creds(), all_printers=self._printers)
         self.win.wait_window(d)
         if d.result:
             d.result['id'] = p['id']
