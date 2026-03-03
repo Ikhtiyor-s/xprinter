@@ -969,6 +969,7 @@ class SettingsWindow:
         # User info row (chiqish)
         uf = tk.Frame(f, bg=BG, padx=16, pady=6); uf.pack(fill='x')
         self._btn(uf, "🔗 Server test", PURPLE, self._test_conn).pack(side='left')
+        self._btn(uf, "🔄 Mahsulotlarni yangilash", '#1a6b3a', self._check_new_products).pack(side='left', padx=(8,0))
         self._btn(uf, "⟳ Hisobdan chiqish", '#444', self._do_logout).pack(side='right')
 
         # Printers section
@@ -1026,6 +1027,111 @@ class SettingsWindow:
 
         self._refresh_tbl()
         self._tick()
+
+    def _check_new_products(self):
+        """Yangi mahsulotlar borligini tekshiradi — eski sozlamalar o'zgarmasdan."""
+        su   = self.agent.server_url
+        uname = self.agent.username
+        pwd   = self.agent.password
+        bid   = self.agent.business_id
+        if not (su and uname and pwd and bid):
+            messagebox.showwarning("Diqqat", "Avval tizimga kiring.", parent=self.win)
+            return
+
+        self._log_msg("🔄 Yangi mahsulotlar tekshirilmoqda...")
+
+        def _run():
+            ok, products, err = api_fetch_menu(su, uname, pwd, bid)
+            if not ok:
+                self.win.after(0, lambda: messagebox.showerror(
+                    "Xato", f"Serverdan ma'lumot olishda xato:\n{err}", parent=self.win))
+                return
+
+            # Barcha mavjud product_ids (barcha printerlardan)
+            all_assigned = set()
+            for p in self._printers:
+                for pid in p.get('product_ids', []):
+                    all_assigned.add(int(pid))
+
+            # Yangi mahsulotlar — hech bir printerga biriktirilmagan
+            new_products = [p for p in products if int(p['id']) not in all_assigned]
+
+            if not new_products:
+                self.win.after(0, lambda: (
+                    self._log_msg("✓ Yangilik yo'q — barcha mahsulotlar allaqachon ro'yxatda."),
+                    messagebox.showinfo(
+                        "Yangilik yo'q",
+                        "✓ Yangi mahsulot topilmadi.\nBarcha mahsulotlar printerlar ro'yxatida mavjud.",
+                        parent=self.win)
+                ))
+                return
+
+            # Yangi mahsulotlar bor — dialog ko'rsatish
+            self.win.after(0, lambda: self._show_new_products_dialog(new_products, products))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _show_new_products_dialog(self, new_products, all_products):
+        """Yangi mahsulotlarni ko'rsatish dialogi."""
+        dlg = tk.Toplevel(self.win)
+        dlg.title("Yangi mahsulotlar topildi")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        # Sarlavha
+        tk.Label(dlg, text=f"🆕  {len(new_products)} ta yangi mahsulot topildi",
+                 font=('Segoe UI', 11, 'bold'), fg='#3fb950', bg=BG,
+                 pady=12, padx=20).pack(fill='x')
+        tk.Frame(dlg, bg=BG3, height=1).pack(fill='x')
+
+        # Mahsulotlar ro'yxati
+        lf = tk.Frame(dlg, bg=BG, padx=16, pady=8); lf.pack(fill='both', expand=True)
+        tk.Label(lf, text="Quyidagi mahsulotlar hali birorta printerga biriktirilmagan:",
+                 font=('Segoe UI', 9), fg=FGD, bg=BG, anchor='w').pack(fill='x')
+
+        # Scroll listbox
+        lb_frame = tk.Frame(lf, bg=BG); lb_frame.pack(fill='both', expand=True, pady=(6,0))
+        sb2 = tk.Scrollbar(lb_frame, orient='vertical')
+        lb = tk.Listbox(lb_frame, yscrollcommand=sb2.set,
+                        bg='#0d1117', fg=FG, font=('Segoe UI', 9),
+                        relief='flat', bd=0, height=min(len(new_products), 12),
+                        selectmode='extended', activestyle='none')
+        sb2.config(command=lb.yview)
+        sb2.pack(side='right', fill='y')
+        lb.pack(side='left', fill='both', expand=True)
+
+        # Kategoriya bo'yicha guruhlash
+        from collections import defaultdict
+        by_cat = defaultdict(list)
+        for p in new_products:
+            by_cat[p.get('category_name') or 'Boshqa'].append(p)
+
+        for cat, prods in sorted(by_cat.items()):
+            lb.insert('end', f"  ── {cat} ──")
+            lb.itemconfig('end', foreground=ACCENT)
+            for p in prods:
+                lb.insert('end', f"    • {p['name']}  (ID: {p['id']})")
+
+        # Info xabar
+        tk.Label(lf,
+                 text="ℹ️  Printerga biriktirish uchun printer ustida ✎ Tahrirlash tugmasini bosing.",
+                 font=('Segoe UI', 8), fg='#888', bg=BG, anchor='w',
+                 wraplength=460, justify='left').pack(fill='x', pady=(8,0))
+
+        # Tugmalar
+        tk.Frame(dlg, bg=BG3, height=1).pack(fill='x', pady=(8,0))
+        bf = tk.Frame(dlg, bg=BG, padx=16, pady=10); bf.pack(fill='x')
+        self._btn(bf, "✕ Yopish", '#555', dlg.destroy, padx=20).pack(side='right')
+
+        count_txt = f"✓ {len(new_products)} ta yangi mahsulot mavjud"
+        self._log_msg(f"🆕 {count_txt}")
+
+        # Oyna o'rtaga
+        dlg.update_idletasks()
+        pw = self.win.winfo_x() + (self.win.winfo_width()  - dlg.winfo_reqwidth())  // 2
+        ph = self.win.winfo_y() + (self.win.winfo_height() - dlg.winfo_reqheight()) // 2
+        dlg.geometry(f"+{pw}+{ph}")
 
     def _do_logout(self):
         if self.agent.running:
