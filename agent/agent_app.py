@@ -544,12 +544,21 @@ class PrinterDlg(tk.Toplevel):
                   bg='#0f3460', fg='#aaa', relief='flat',
                   font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='left', padx=2)
 
+        # Buttons — avval bottom ga pack (expand frame ularni pastga tushirmasligi uchun)
+        bf = tk.Frame(self, bg='#1a1a2e'); bf.pack(side='bottom', fill='x', padx=20, pady=10)
+        tk.Button(bf, text="✓ Saqlash", command=self._ok,
+                  bg='#00b894', fg='white', font=('Segoe UI',10,'bold'),
+                  relief='flat', padx=16, pady=6, cursor='hand2').pack(side='right', padx=(8,0))
+        tk.Button(bf, text="Bekor", command=self.destroy,
+                  bg='#0f3460', fg='white', font=('Segoe UI',10),
+                  relief='flat', padx=14, pady=6, cursor='hand2').pack(side='right')
+
         # Scrollable mahsulotlar frame
-        prod_container = tk.Frame(self, bg='#16213e', padx=16, pady=4)
+        prod_container = tk.Frame(self, bg='#16213e', padx=4, pady=4)
         prod_container.pack(fill='both', expand=True, padx=16, pady=(0,4))
 
         self._prod_canvas = tk.Canvas(prod_container, bg='#0d1117',
-                                       highlightthickness=0, height=180)
+                                       highlightthickness=0, height=160)
         vsb = ttk.Scrollbar(prod_container, orient='vertical',
                              command=self._prod_canvas.yview)
         self._prod_sf = tk.Frame(self._prod_canvas, bg='#0d1117')
@@ -571,15 +580,6 @@ class PrinterDlg(tk.Toplevel):
                  "ℹ  Mahsulotlar: tizimga kirish kerak",
             font=('Segoe UI',9), fg='#666', bg='#0d1117', anchor='w')
         self._prod_status.pack(fill='x', padx=8, pady=8)
-
-        # Buttons
-        bf = tk.Frame(self, bg='#1a1a2e'); bf.pack(fill='x', padx=20, pady=10)
-        tk.Button(bf, text="✓ Saqlash", command=self._ok,
-                  bg='#00b894', fg='white', font=('Segoe UI',10,'bold'),
-                  relief='flat', padx=16, pady=5, cursor='hand2').pack(side='right', padx=(8,0))
-        tk.Button(bf, text="Bekor", command=self.destroy,
-                  bg='#0f3460', fg='white', font=('Segoe UI',10),
-                  relief='flat', padx=14, pady=5, cursor='hand2').pack(side='right')
 
     def _populate_detected(self):
         for w in self._det_frame.winfo_children():
