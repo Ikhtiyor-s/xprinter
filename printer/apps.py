@@ -29,35 +29,62 @@ class PrinterConfig(AppConfig):
         logger.info("Nonbor polling thread boshlandi")
 
     def _polling_loop(self):
-        """Doimiy polling loop"""
+        """Markaziy polling loop — bir xil API URL uchun BITTA so'rov"""
         # Django to'liq yuklanguncha kutish
         time.sleep(5)
 
         from printer.models import NonborConfig
-        from printer.services.nonbor_api import poll_and_print
+        from printer.services.nonbor_api import poll_and_print, fetch_all_orders
 
-        logger.info("Nonbor polling loop ishlamoqda...")
+        logger.info("Markaziy polling loop ishlamoqda...")
 
         while True:
             try:
-                configs = NonborConfig.objects.filter(
+                configs = list(NonborConfig.objects.filter(
                     is_active=True,
                     poll_enabled=True,
-                )
+                ))
+
+                if not configs:
+                    time.sleep(5)
+                    continue
+
+                # Configlarni (api_url, api_secret) bo'yicha guruhlash
+                groups = {}
                 for config in configs:
+                    key = (config.api_url, config.api_secret)
+                    groups.setdefault(key, []).append(config)
+
+                # Har bir unikal URL uchun BITTA so'rov
+                for (api_url, api_secret), group_configs in groups.items():
                     try:
-                        new_count, printed, errors = poll_and_print(config)
-                        if new_count > 0:
-                            logger.info(
-                                f"[Biznes #{config.business_id}] "
-                                f"{new_count} yangi buyurtma, "
-                                f"{printed} chop etildi"
-                            )
-                    except Exception as e:
-                        logger.error(
-                            f"Polling xato (biznes #{config.business_id}): {e}"
+                        all_orders = fetch_all_orders(api_url, api_secret)
+                        biz_ids = [c.business_id for c in group_configs]
+                        logger.debug(
+                            f"Markaziy polling: 1 so'rov -> {len(all_orders)} buyurtma, "
+                            f"{len(group_configs)} config ({biz_ids})"
                         )
+
+                        # Har bir config uchun buyurtmalarni filtrlab berish
+                        for config in group_configs:
+                            try:
+                                new_count, printed, errors = poll_and_print(
+                                    config, orders=all_orders
+                                )
+                                if new_count > 0:
+                                    logger.info(
+                                        f"[Biznes #{config.business_id}] "
+                                        f"{new_count} yangi buyurtma, "
+                                        f"{printed} chop etildi"
+                                    )
+                            except Exception as e:
+                                logger.error(
+                                    f"Polling xato (biznes #{config.business_id}): {e}"
+                                )
+                    except Exception as e:
+                        logger.error(f"Markaziy polling xato ({api_url}): {e}")
+
             except Exception as e:
                 logger.error(f"Polling loop xato: {e}")
 
-            time.sleep(5)  # Har 5 soniyada tekshiramiz
+            time.sleep(5)  # Har 5 sekundda tekshiramiz

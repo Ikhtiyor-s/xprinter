@@ -156,6 +156,7 @@ def api_sync_printer(server_url, username, password, printer_data):
             'port': printer_data.get('port', 9100),
             'usb': printer_data.get('usb', ''),
             'paper_width': printer_data.get('paper_width', 80),
+            'is_admin': printer_data.get('is_admin', False),
             'product_ids': printer_data.get('product_ids', []),
             'product_names': printer_data.get('product_names', {}),
         }
@@ -339,7 +340,7 @@ class Agent:
         self.business_name = ''
         self.username = ''
         self.password = ''
-        self.poll_interval = 3
+        self.poll_interval = 5
         self.printers = []
         self.printed = 0
         self.errors  = 0
@@ -354,7 +355,7 @@ class Agent:
         self.business_name = _cfg_get(c,'business','name','')
         self.username      = _cfg_get(c,'auth','username','')
         self.password      = _cfg_get(c,'auth','password','')
-        self.poll_interval = int(_cfg_get(c,'settings','poll_interval','3'))
+        self.poll_interval = int(_cfg_get(c,'settings','poll_interval','5'))
         self.printers      = load_printers(self.business_id)
 
     def log(self, msg, lvl='info'):
@@ -369,7 +370,23 @@ class Agent:
         name = (job.get('printer_name') or '').strip().lower()
         return next((p for p in self.printers if p.get('name','').lower()==name), None)
 
+    def _poll_orders(self):
+        """Nonbor API dan yangi buyurtmalarni olish (server orqali)"""
+        try:
+            r = _post(self.server_url, self.username, self.password,
+                      f'nonbor/poll/{self.business_id}/', {})
+            new = r.get('new_orders', 0)
+            printed = r.get('printed', 0)
+            if new > 0:
+                self.log(f"Nonbor: {new} ta yangi buyurtma, {printed} ta chop etildi")
+        except Exception:
+            pass  # Server chiqmasa yoki config yo'q bo'lsa — xato ko'rsatmaymiz
+
     def _poll(self):
+        # 1) Nonbor API dan yangi buyurtmalarni tekshir
+        self._poll_orders()
+
+        # 2) Pending print joblarni ol
         try:
             r = _get(self.server_url, self.username, self.password,
                      'print-job/agent/poll/', {'business_id': self.business_id})
@@ -577,6 +594,14 @@ class PrinterDlg(tk.Toplevel):
             tk.Radiobutton(rw, text=t, variable=self._pw, value=v,
                            bg='#ffffff', fg='#1e293b', selectcolor='#eef2ff',
                            activebackground='#ffffff', font=('Segoe UI',9)).pack(side='left', padx=8)
+
+        # Admin printer checkbox
+        ra = tk.Frame(top, bg='#ffffff'); ra.pack(fill='x', **fp)
+        self._is_admin = tk.BooleanVar(value=d.get('is_admin', False))
+        tk.Checkbutton(ra, text="  Admin printer (barcha buyurtmalarni ko'rsatadi)",
+                       variable=self._is_admin, bg='#ffffff', fg='#1e293b',
+                       selectcolor='#eef2ff', activebackground='#ffffff',
+                       font=('Segoe UI',9,'bold')).pack(side='left')
 
         # ══ PASTKI QISM: Saqlash/Bekor — side='bottom', har doim ko'rinadi ══
         bf = tk.Frame(self, bg='#e2e8f0'); bf.pack(side='bottom', fill='x', padx=0, pady=0)
@@ -851,6 +876,7 @@ class PrinterDlg(tk.Toplevel):
             'port':         int(self._port.get().strip() or 9100),
             'usb':          self._usb.get().strip(),
             'paper_width':  int(self._pw.get()),
+            'is_admin':     self._is_admin.get(),
             'product_ids':  product_ids,
             'product_names': {str(p['id']): p['name']
                               for p in self._products
@@ -1092,12 +1118,12 @@ class SettingsWindow:
                          font=('Segoe UI',9,'bold'), padding=4)
         style.map('T.Treeview', background=[('selected','#eef2ff')],
                   foreground=[('selected','#1e293b')])
-        cols = ('label','name','conn','addr','width','prods')
+        cols = ('label','name','admin','conn','addr','width','prods')
         self._tree = ttk.Treeview(tf, style='T.Treeview',
                                    columns=cols, show='headings', height=5)
-        for col,(hd,w) in zip(cols,[("Yorliq",100),("Printer nomi",130),
-                                     ("Ulanish",70),("Manzil",150),
-                                     ("Qog'oz",50),("Mahsulotlar",120)]):
+        for col,(hd,w) in zip(cols,[("Yorliq",100),("Printer nomi",120),
+                                     ("Turi",55),("Ulanish",65),("Manzil",130),
+                                     ("Qog'oz",45),("Mahsulotlar",110)]):
             self._tree.heading(col, text=hd)
             self._tree.column(col, width=w, anchor='w')
         self._tree.pack(fill='x')
@@ -1297,8 +1323,9 @@ class SettingsWindow:
                 prod_txt = f"✓ {len(pids)} ta: {', '.join(names[:2])}{'...' if len(names)>2 else ''}"
             else:
                 prod_txt = "— barcha"
+            admin_txt = "✦ Admin" if p.get('is_admin', False) else ""
             self._tree.insert('','end', iid=p['id'],
-                               values=(p.get('label',''), p.get('name',''), ct, addr,
+                               values=(p.get('label',''), p.get('name',''), admin_txt, ct, addr,
                                        f"{p.get('paper_width',80)}mm", prod_txt))
 
     def _on_tree_select(self, event=None):

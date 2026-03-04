@@ -1131,6 +1131,7 @@ class PrinterAgentSyncView(APIView):
         port = int(request.data.get('port', 9100))
         usb_path = request.data.get('usb') or None
         paper_width = int(request.data.get('paper_width', 80))
+        is_admin = bool(request.data.get('is_admin', False))
 
         # Printer yaratish yoki topish
         printer, created = Printer.objects.get_or_create(
@@ -1142,8 +1143,14 @@ class PrinterAgentSyncView(APIView):
                 'port': port,
                 'usb_path': usb_path,
                 'paper_width': paper_width,
+                'is_admin': is_admin,
             }
         )
+
+        # Mavjud printer — is_admin yangilash
+        if not created:
+            printer.is_admin = is_admin
+            printer.save(update_fields=['is_admin'])
 
         # Mahsulot ulashlarini yangilash
         PrinterProduct.objects.filter(printer=printer, business_id=business_id).delete()

@@ -80,10 +80,14 @@ class Command(BaseCommand):
                         )
                     )
 
+                # Bizneslar orasida 2 sekund kutish (API ni yuklamaslik uchun)
+                if not once:
+                    time.sleep(2)
+
             if once:
                 self.stdout.write('Bir martalik polling tugadi.')
                 return
 
-            # Kutish
-            sleep_time = interval_override or (configs[0].poll_interval if configs else 5)
+            # Keyingi iteratsiya uchun kutish
+            sleep_time = interval_override or (configs[0].poll_interval if configs else 10)
             time.sleep(sleep_time)

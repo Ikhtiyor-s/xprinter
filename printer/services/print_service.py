@@ -182,44 +182,37 @@ def build_kitchen_receipt(printer, order_data, items, other_printer_items=None):
 
     now = datetime.now().strftime('%d.%m.%Y %H:%M')
 
-    # Sarlavha
-    rb.add_double_line()
+    # === SARLAVHA (ixcham) ===
     business_name = order_data.get('business_name', 'NONBOR')
     rb.add_text(business_name, bold=True, center=True, double=True)
-    rb.add_double_line()
-
-    # Buyurtma info
     order_num = order_data.get('order_number', str(order_data.get('order_id', '')))
-    rb.add_text(f"Buyurtma: #{order_num}", bold=True)
-    rb.add_text(f"Sana: {now}")
+    rb.add_text(f"#{order_num}  |  {now}", center=True)
+    rb.add_line()
 
-    # Mijoz telefoni - buyurtma info yonida (ko'rinib tursin)
-    phone = order_data.get('customer_phone', '')
-    if phone:
-        rb.add_text(f"Tel: {phone}", bold=True)
-
-    # === BUYURTMA TURI (OLIB KETISH / YETKAZIB BERISH) ===
+    # === STATUS (buyurtma turi) ===
     order_type = order_data.get('order_type', '').strip().upper()
     delivery_method = order_data.get('delivery_method', '').strip().upper()
-
-    # order_type yoki delivery_method dan aniqlash
     otype = order_type or delivery_method
-    if otype in ('DELIVERY', 'YETKAZIB_BERISH', 'YETKAZISH'):
-        rb.add_text(">> YETKAZIB BERISH <<", bold=True, center=True, double=True)
-    elif otype in ('PICKUP', 'OLIB_KETISH', 'OLIB KETISH', 'TAKEAWAY'):
-        rb.add_text(">> OLIB KETISH <<", bold=True, center=True, double=True)
-    elif otype in ('DINE_IN', 'ZALDA', 'ICHIDA'):
-        rb.add_text(">> ZALDA <<", bold=True, center=True, double=True)
-    elif otype:
-        rb.add_text(f">> {otype} <<", bold=True, center=True, double=True)
 
-    # === REJA BUYURTMA (oldindan buyurtma) ===
+    if otype in ('DELIVERY', 'YETKAZIB_BERISH', 'YETKAZISH'):
+        status_text = ">> YETKAZIB BERISH <<"
+    elif otype in ('PICKUP', 'OLIB_KETISH', 'OLIB KETISH', 'TAKEAWAY'):
+        status_text = ">> OLIB KETISH <<"
+    elif otype in ('DINE_IN', 'ZALDA', 'ICHIDA'):
+        status_text = ">> ZALDA <<"
+    elif otype:
+        status_text = f">> {otype} <<"
+    else:
+        status_text = ""
+
+    if status_text:
+        rb.add_text(status_text, bold=True, center=True, double=True)
+
+    # === REJA BUYURTMA ===
     scheduled_time = order_data.get('scheduled_time', '').strip()
     if scheduled_time:
-        rb.add_empty_line()
         rb.add_text("*** REJA BUYURTMA ***", bold=True, center=True, double=True)
         rb.add_text(f"Vaqti: {scheduled_time}", bold=True, center=True)
-        rb.add_empty_line()
 
     rb.add_line()
 
@@ -264,42 +257,48 @@ def build_kitchen_receipt(printer, order_data, items, other_printer_items=None):
     # === BOSHQA PRINTERLARNING MAHSULOTLARI ===
     if other_printer_items:
         rb.add_line()
-        rb.add_text("Boshqa printerlar:", bold=True)
+        if is_admin:
+            # Admin printerda barcha mahsulotlar allaqachon JAMI da
+            # Faqat qaysi printerga nima ketganini ko'rsatish
+            for other_name, other_items in other_printer_items.items():
+                names = [it.get('name', '') for it in other_items]
+                rb.add_text(f"[ {other_name} ]: {', '.join(names)}", bold=True)
+        else:
+            grand_total = total
+            for other_name, other_items in other_printer_items.items():
+                rb.add_text(f"[ {other_name} ]", bold=True, center=True)
+                for item in other_items:
+                    name = item.get('name', 'Nomsiz')
+                    qty = int(item.get('quantity', 1))
+                    price = float(item.get('price', 0))
+                    item_total = qty * price
+                    grand_total += item_total
+                    rb.add_item_line(name, qty, item_total)
+                    for mod in item.get('modifiers', []):
+                        mod_total = int(mod.get('quantity', 1)) * float(mod.get('price', 0))
+                        grand_total += mod_total
+                        rb.add_modifier_line(mod.get('name', ''), int(mod.get('quantity', 1)), mod_total)
 
-        grand_total = total
-        for other_name, other_items in other_printer_items.items():
-            for item in other_items:
-                name = item.get('name', 'Nomsiz')
-                qty = int(item.get('quantity', 1))
-                price = float(item.get('price', 0))
-                item_total = qty * price
-                grand_total += item_total
-                rb.add_item_line(name, qty, item_total)
-                for mod in item.get('modifiers', []):
-                    mod_total = int(mod.get('quantity', 1)) * float(mod.get('price', 0))
-                    grand_total += mod_total
-                    rb.add_modifier_line(mod.get('name', ''), int(mod.get('quantity', 1)), mod_total)
-
-        rb.add_line()
-        grand_str = f"{grand_total:,.0f}".replace(',', ' ')
-        uj_label = "UMUMIY JAMI:"
-        uj_value = f"{grand_str} so'm"
-        uj_pad = rb.char_width - len(uj_label) - len(uj_value)
-        if uj_pad < 1:
-            uj_pad = 1
-        rb.add_text(f"{uj_label}{' ' * uj_pad}{uj_value}", bold=True)
+            rb.add_line()
+            grand_str = f"{grand_total:,.0f}".replace(',', ' ')
+            uj_label = "UMUMIY JAMI:"
+            uj_value = f"{grand_str} so'm"
+            uj_pad = rb.char_width - len(uj_label) - len(uj_value)
+            if uj_pad < 1:
+                uj_pad = 1
+            rb.add_text(f"{uj_label}{' ' * uj_pad}{uj_value}", bold=True)
 
     rb.add_line()
 
     # Mijoz info
     customer = order_data.get('customer_name', '')
+    phone = order_data.get('customer_phone', '')
     address = order_data.get('customer_address', '')
-    delivery = order_data.get('delivery_method', '')
 
     if customer:
         rb.add_text(f"Mijoz: {customer}")
-    if delivery:
-        rb.add_text(f"Turi: {delivery}")
+    if phone:
+        rb.add_text(f"Tel: {phone}")
     if address:
         rb.add_text(f"Manzil: {address}", bold=True)
 
@@ -511,18 +510,14 @@ def print_order(order_data, items, business_id):
         if not printer:
             continue
 
-        # Admin printer uchun boshqa printerlar ko'rsatilmaydi
-        if printer.is_admin:
-            other_printer_items = None
-        else:
-            # Boshqa printerlarning mahsulotlarini yig'ish
-            other_printer_items = {}
-            for other_pid, other_items in printer_items.items():
-                if other_pid == printer_id:
-                    continue
-                other_printer = printers.get(other_pid)
-                if other_printer and not other_printer.is_admin:
-                    other_printer_items[other_printer.name] = other_items
+        # Boshqa printerlarning mahsulotlarini yig'ish (barcha cheklarda)
+        other_printer_items = {}
+        for other_pid, other_items in printer_items.items():
+            if other_pid == printer_id:
+                continue
+            other_printer = printers.get(other_pid)
+            if other_printer:
+                other_printer_items[other_printer.name] = other_items
 
         # Receipt yaratish
         receipt = build_kitchen_receipt(

@@ -220,17 +220,49 @@ def parse_nonbor_order(order_raw, business_id):
     return order_data, items
 
 
-def poll_and_print(config: NonborConfig):
+def fetch_all_orders(api_url: str, api_secret: str) -> list:
+    """Bitta API so'rov bilan barcha buyurtmalarni olish.
+    Barcha bizneslarning buyurtmalari qaytadi — keyinchalik business_id bo'yicha filtrlash kerak.
+    """
+    url = f"{api_url.rstrip('/')}/telegram_bot/get-order-for-courier/"
+    headers = {
+        'accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-Telegram-Bot-Secret': api_secret,
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if not data or not data.get('success'):
+                return []
+            result = data.get('result', {})
+            if isinstance(result, dict):
+                return result.get('results', [])
+            return result if isinstance(result, list) else []
+        logger.warning(f"Markaziy polling [{resp.status_code}]: {url}")
+        return []
+    except Exception as e:
+        logger.error(f"Markaziy polling xato: {url} - {e}")
+        return []
+
+
+def poll_and_print(config: NonborConfig, orders: list = None):
     """Nonbor API dan yangi buyurtmalarni olib, chop etish.
+
+    Args:
+        config: NonborConfig instansiyasi
+        orders: Tayyor buyurtmalar ro'yxati (markaziy pollingdan).
+                None bo'lsa — o'zi API ga so'rov yuboradi (manual poll uchun).
 
     Returns: (new_orders_count, printed_count, errors_count)
     """
     from .print_service import print_order
 
-    api = NonborAPI(config)
-
-    # Buyurtmalarni olish - asosiy endpoint: get-order-for-courier
-    orders = api.get_orders()
+    if orders is None:
+        # Manual poll — o'zi API ga so'rov yuboradi
+        api = NonborAPI(config)
+        orders = api.get_orders()
 
     if not orders:
         config.last_poll_at = timezone.now()
