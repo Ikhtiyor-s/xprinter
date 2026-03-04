@@ -1,10 +1,11 @@
 import logging
+import time as _time
 
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-from .models import Printer, PrinterCategory, PrinterProduct, PrintJob, NonborConfig, AgentCredential
+from .models import Printer, PrinterCategory, PrinterProduct, PrintJob, NonborConfig, AgentCredential, OrderService
 from .serializers import (
     PrinterCreateSerializer,
     PrinterUpdateSerializer,
@@ -952,6 +953,11 @@ class AgentAuthView(APIView):
         })
 
 
+# Mahsulotlar keshi: {business_id: (timestamp, products_list)}
+_MENU_CACHE = {}
+_MENU_CACHE_TTL = 300  # 5 daqiqa
+
+
 class NonborMenuView(APIView):
     """GET /api/v2/nonbor/menu/<business_id>/
     Agent uchun: biznes mahsulotlar ro'yxatini olish (Nonbor API proxy)
@@ -960,6 +966,7 @@ class NonborMenuView(APIView):
     def get(self, request, business_id):
         username = request.GET.get('username', '').strip()
         password = request.GET.get('password', '').strip()
+        force_refresh = request.GET.get('refresh', '').strip() == '1'
 
         # Agent autentifikatsiya
         try:
@@ -968,6 +975,13 @@ class NonborMenuView(APIView):
             return Response({'success': False, 'error': 'Login topilmadi'}, status=401)
         if not cred.check_password(password) or cred.business_id != business_id:
             return Response({'success': False, 'error': 'Auth xato'}, status=401)
+
+        # Keshdan qaytarish (agar yangi so'rov emas bo'lsa)
+        cached = _MENU_CACHE.get(business_id)
+        if cached and not force_refresh:
+            ts, cached_products = cached
+            if _time.time() - ts < _MENU_CACHE_TTL:
+                return Response({'success': True, 'count': len(cached_products), 'products': cached_products})
 
         # Nonbor config: avval shu biznes uchun, bo'lmasa ixtiyoriy aktiv config
         config = (
@@ -1059,6 +1073,9 @@ class NonborMenuView(APIView):
                 'category_id': mc.get('id') or cat.get('id'),
                 'category_name': cat_name,
             })
+
+        # Keshga saqlash
+        _MENU_CACHE[business_id] = (_time.time(), products)
 
         return Response({
             'success': True,
@@ -1252,4 +1269,93 @@ class AgentCredentialDeleteView(APIView):
         except AgentCredential.DoesNotExist:
             return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
         cred.delete()
+        return Response({'success': True})
+
+
+# ============================================================
+# ORDER SERVICE CRUD (Tashqi servislar - Nonbor + boshqalar)
+# ============================================================
+
+def _order_service_dict(s):
+    return {
+        'id': s.id,
+        'business_id': s.business_id,
+        'business_name': s.business_name,
+        'service_name': s.service_name,
+        'api_url': s.api_url,
+        'api_secret': s.api_secret,
+        'poll_enabled': s.poll_enabled,
+        'poll_interval': s.poll_interval,
+        'last_poll_at': s.last_poll_at.isoformat() if s.last_poll_at else None,
+        'is_active': s.is_active,
+        'created_at': s.created_at.isoformat(),
+    }
+
+
+class OrderServiceListView(APIView):
+    """GET /api/v2/order-service/list/?business_id=<id>"""
+
+    def get(self, request):
+        business_id = request.GET.get('business_id')
+        qs = OrderService.objects.all().order_by('business_id', 'service_name')
+        if business_id:
+            qs = qs.filter(business_id=business_id)
+        return Response({'success': True, 'result': [_order_service_dict(s) for s in qs]})
+
+
+class OrderServiceCreateView(APIView):
+    """POST /api/v2/order-service/create/"""
+
+    def post(self, request):
+        business_id = request.data.get('business_id')
+        service_name = request.data.get('service_name', '').strip()
+        api_url = request.data.get('api_url', '').strip()
+
+        if not business_id or not service_name or not api_url:
+            return Response({
+                'success': False,
+                'error': 'business_id, service_name va api_url majburiy',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        svc = OrderService.objects.create(
+            business_id=business_id,
+            business_name=request.data.get('business_name', ''),
+            service_name=service_name,
+            api_url=api_url,
+            api_secret=request.data.get('api_secret', ''),
+            poll_enabled=request.data.get('poll_enabled', False),
+            poll_interval=request.data.get('poll_interval', 10),
+            is_active=request.data.get('is_active', True),
+        )
+        return Response({'success': True, 'result': _order_service_dict(svc)}, status=status.HTTP_201_CREATED)
+
+
+class OrderServiceUpdateView(APIView):
+    """PUT /api/v2/order-service/{id}/update/"""
+
+    def put(self, request, pk):
+        try:
+            svc = OrderService.objects.get(pk=pk)
+        except OrderService.DoesNotExist:
+            return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
+
+        for field in ('business_name', 'service_name', 'api_url', 'api_secret',
+                      'poll_enabled', 'poll_interval', 'is_active'):
+            if field in request.data:
+                setattr(svc, field, request.data[field])
+        svc.save()
+        return Response({'success': True, 'result': _order_service_dict(svc)})
+
+    patch = put
+
+
+class OrderServiceDeleteView(APIView):
+    """DELETE /api/v2/order-service/{id}/delete/"""
+
+    def delete(self, request, pk):
+        try:
+            svc = OrderService.objects.get(pk=pk)
+        except OrderService.DoesNotExist:
+            return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
+        svc.delete()
         return Response({'success': True})

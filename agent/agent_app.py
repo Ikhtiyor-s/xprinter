@@ -115,7 +115,7 @@ def api_fetch_menu(server_url, username, password, business_id):
         full = f"{server_url}/api/v2/agent/menu/{business_id}/"
         params = {'username': username, 'password': password}
         if HAS_REQ:
-            r = _req.get(full, params=params, timeout=15)
+            r = _req.get(full, params=params, timeout=60)
             try: data = r.json()
             except: return False, [], f"Server xatosi ({r.status_code})"
         else:
