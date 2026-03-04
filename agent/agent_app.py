@@ -20,6 +20,7 @@ CONFIG_FILE        = BASE_DIR / 'config.ini'
 PRINTERS_FILE      = BASE_DIR / 'printers.json'
 LOG_FILE           = BASE_DIR / 'agent.log'
 SAVED_LOGINS_FILE  = BASE_DIR / 'saved_logins.json'
+PRODUCTS_CACHE     = BASE_DIR / 'products_cache.json'
 
 # ── SERVER URL (server_url.txt dan o'qiladi, aks holda default) ─────────
 _SERVER_URL_FILE = BASE_DIR / 'server_url.txt'
@@ -653,14 +654,34 @@ class PrinterDlg(tk.Toplevel):
 
     # ── Mahsulotlar ───────────────────────────────────────────
     def _load_products(self, existing_data):
-        """Background thread: mahsulotlarni serverdan yuklab, UI ni yangilaydi"""
+        """Background thread: mahsulotlarni serverdan yuklab, UI ni yangilaydi.
+        Server ishlamasa — lokal keshdan yuklaydi."""
         su, uname, pwd, bid = self._creds
         bid_int = int(bid)
         ok, products, err = api_fetch_menu(su, uname, pwd, bid_int)
+
+        if ok and products:
+            # Keshga saqlash
+            try:
+                with open(PRODUCTS_CACHE, 'w', encoding='utf-8') as f:
+                    json.dump({'bid': bid_int, 'products': products}, f, ensure_ascii=False)
+            except Exception:
+                pass
+        elif not ok:
+            # Server ishlamadi — keshdan yuklash
+            try:
+                if PRODUCTS_CACHE.exists():
+                    with open(PRODUCTS_CACHE, encoding='utf-8') as f:
+                        cached = json.load(f)
+                    if cached.get('bid') == bid_int and cached.get('products'):
+                        products = cached['products']
+                        ok = True
+                        err = None
+            except Exception:
+                pass
+
         self._products = products
-        # Existing product_ids (edit mode)
         existing_ids = set(existing_data.get('product_ids', []))
-        # UI yangilash (main thread da)
         try:
             self.after(0, self._render_products, products, existing_ids, err)
         except Exception:
@@ -1060,6 +1081,23 @@ class SettingsWindow:
 
         def _run():
             ok, products, err = api_fetch_menu(su, uname, pwd, bid)
+            if ok and products:
+                try:
+                    with open(PRODUCTS_CACHE, 'w', encoding='utf-8') as f:
+                        json.dump({'bid': int(bid), 'products': products}, f, ensure_ascii=False)
+                except Exception:
+                    pass
+            elif not ok:
+                # Keshdan yuklash
+                try:
+                    if PRODUCTS_CACHE.exists():
+                        with open(PRODUCTS_CACHE, encoding='utf-8') as f:
+                            cached = json.load(f)
+                        if cached.get('bid') == int(bid) and cached.get('products'):
+                            products = cached['products']
+                            ok = True
+                except Exception:
+                    pass
             if not ok:
                 self.win.after(0, lambda: messagebox.showerror(
                     "Xato", f"Serverdan ma'lumot olishda xato:\n{err}", parent=self.win))
