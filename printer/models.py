@@ -97,6 +97,7 @@ class NonborConfig(models.Model):
     api_secret = models.CharField(
         max_length=200,
         default='nonbor-secret-key',
+        blank=True,
         help_text="X-Telegram-Bot-Secret header qiymati"
     )
     seller_id = models.IntegerField(
@@ -215,6 +216,86 @@ class AgentCredential(models.Model):
 
     def check_password(self, raw: str) -> bool:
         return self.password == raw
+
+
+class IntegrationTemplate(models.Model):
+    """Tayyor integratsiya shablonlari - admin tomonidan yaratiladi.
+    Har bir shablon bitta integratsiya turini ifodalaydi (Nonbor, iiko, R-Keeper va h.k.)"""
+
+    name = models.CharField(max_length=200, help_text="Shablon nomi: Nonbor, iiko, R-Keeper")
+    slug = models.SlugField(unique=True, help_text="URL-friendly nom: nonbor, iiko, r-keeper")
+    description = models.TextField(blank=True, default='', help_text="Qisqa tavsif")
+    icon = models.CharField(max_length=50, default='🔗', help_text="Emoji yoki icon nomi")
+    color = models.CharField(max_length=20, default='#1890ff', help_text="Kartochka rangi (hex)")
+    base_api_url = models.CharField(max_length=500, blank=True, default='', help_text="Default API URL")
+    default_poll_interval = models.IntegerField(default=10, help_text="Default polling intervali (s)")
+    is_active = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0, help_text="Tartiblash uchun")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'integration_template'
+        ordering = ['sort_order', 'name']
+
+    def __str__(self):
+        return f"{self.icon} {self.name}"
+
+
+class OrderService(models.Model):
+    """Tashqi buyurtma servislari - Nonbor emas, boshqa tizimlar ham ulanishi mumkin.
+    Masalan: Yandex Food, Express24, iiko va h.k.
+    Har bir servis uchun API URL va autentifikatsiya ma'lumotlari saqlanadi."""
+
+    template = models.ForeignKey(
+        IntegrationTemplate, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='services',
+        help_text="Qaysi shablon asosida yaratilgan"
+    )
+    business_id = models.IntegerField(
+        db_index=True,
+        help_text="Nonbor business ID"
+    )
+    business_name = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text="Biznes nomi (kesh)"
+    )
+    service_name = models.CharField(
+        max_length=200,
+        help_text="Servis nomi, masalan: Yandex Food, Express24"
+    )
+    api_url = models.CharField(
+        max_length=500, blank=True, default='',
+        help_text="Buyurtmalarni olish uchun API URL (ixtiyoriy)"
+    )
+    api_secret = models.CharField(
+        max_length=300, blank=True, default='',
+        help_text="API token yoki maxfiy kalit (ixtiyoriy)"
+    )
+    bot_token = models.CharField(
+        max_length=500, blank=True, default='',
+        help_text="Telegram bot token (ixtiyoriy)"
+    )
+    poll_enabled = models.BooleanField(
+        default=False,
+        help_text="Avtomatik polling yoqilganmi"
+    )
+    poll_interval = models.IntegerField(
+        default=10,
+        help_text="Polling intervali (sekundlarda)"
+    )
+    last_poll_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Oxirgi polling vaqti"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'order_service'
+        ordering = ['business_id', 'service_name']
+
+    def __str__(self):
+        return f"{self.service_name} → Biznes #{self.business_id}"
 
 
 class PrintJob(models.Model):

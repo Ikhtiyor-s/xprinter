@@ -299,6 +299,8 @@ class NonborConfigSerializer(serializers.ModelSerializer):
 
 
 class NonborConfigCreateSerializer(serializers.ModelSerializer):
+    api_secret = serializers.CharField(required=False, allow_blank=True, default='')
+
     class Meta:
         model = NonborConfig
         fields = [

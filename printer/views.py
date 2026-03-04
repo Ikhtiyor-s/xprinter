@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-from .models import Printer, PrinterCategory, PrinterProduct, PrintJob, NonborConfig, AgentCredential, OrderService
+from .models import Printer, PrinterCategory, PrinterProduct, PrintJob, NonborConfig, AgentCredential, IntegrationTemplate, OrderService
 from .serializers import (
     PrinterCreateSerializer,
     PrinterUpdateSerializer,
@@ -983,16 +983,24 @@ class NonborMenuView(APIView):
             if _time.time() - ts < _MENU_CACHE_TTL:
                 return Response({'success': True, 'count': len(cached_products), 'products': cached_products})
 
-        # Nonbor config: avval shu biznes uchun, bo'lmasa ixtiyoriy aktiv config
-        config = (
-            NonborConfig.objects.filter(business_id=business_id, is_active=True).first()
-            or NonborConfig.objects.filter(is_active=True).first()
-        )
+        # Nonbor config: faqat shu biznes uchun
+        config = NonborConfig.objects.filter(business_id=business_id, is_active=True).first()
         if not config:
-            return Response({
-                'success': False,
-                'error': 'Nonbor API sozlamasi topilmadi. Admin "Nonbor API" tabida sozlash kerak.',
-            }, status=404)
+            # Avtomatik yaratish: default sozlamalar bilan
+            default_config = NonborConfig.objects.filter(is_active=True).first()
+            if default_config:
+                config = NonborConfig.objects.create(
+                    business_id=business_id,
+                    business_name=cred.business_name or f'Biznes #{business_id}',
+                    api_url=default_config.api_url,
+                    api_secret=default_config.api_secret,
+                    is_active=True,
+                )
+            else:
+                return Response({
+                    'success': False,
+                    'error': 'Nonbor API sozlamasi topilmadi. Admin "Nonbor API" tabida sozlash kerak.',
+                }, status=404)
 
         # Nonbor API dan mahsulotlar
         # products/?business=<id> — barcha mahsulotlar (menu_categoriyasiz ham)
@@ -1042,6 +1050,16 @@ class NonborMenuView(APIView):
         for p in all_raw:
             pid = p.get('id')
             if pid in seen_ids:
+                continue
+            # Faqat shu biznesga tegishli mahsulotlar
+            p_biz = p.get('business')
+            if isinstance(p_biz, dict):
+                p_biz_id = p_biz.get('id')
+            elif isinstance(p_biz, (int, str)):
+                p_biz_id = int(p_biz) if str(p_biz).isdigit() else None
+            else:
+                p_biz_id = None
+            if p_biz_id is not None and p_biz_id != business_id:
                 continue
             seen_ids.add(pid)
             mc = p.get('menu_category') or {}
@@ -1132,11 +1150,13 @@ class PrinterAgentSyncView(APIView):
         for pid in product_ids:
             pid_int = int(pid)
             pname = product_names.get(str(pid), '') or product_names.get(pid, '')
-            PrinterProduct.objects.create(
-                printer=printer,
+            PrinterProduct.objects.update_or_create(
                 product_id=pid_int,
-                product_name=pname,
                 business_id=business_id,
+                defaults={
+                    'printer': printer,
+                    'product_name': pname,
+                },
             )
 
         return Response({
@@ -1279,11 +1299,14 @@ class AgentCredentialDeleteView(APIView):
 def _order_service_dict(s):
     return {
         'id': s.id,
+        'template_id': s.template_id,
+        'template_name': s.template.name if s.template else None,
         'business_id': s.business_id,
         'business_name': s.business_name,
         'service_name': s.service_name,
         'api_url': s.api_url,
         'api_secret': s.api_secret,
+        'bot_token': s.bot_token,
         'poll_enabled': s.poll_enabled,
         'poll_interval': s.poll_interval,
         'last_poll_at': s.last_poll_at.isoformat() if s.last_poll_at else None,
@@ -1311,18 +1334,28 @@ class OrderServiceCreateView(APIView):
         service_name = request.data.get('service_name', '').strip()
         api_url = request.data.get('api_url', '').strip()
 
-        if not business_id or not service_name or not api_url:
+        if not business_id or not service_name:
             return Response({
                 'success': False,
-                'error': 'business_id, service_name va api_url majburiy',
+                'error': 'business_id va service_name majburiy',
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        template_id = request.data.get('template_id')
+        template = None
+        if template_id:
+            try:
+                template = IntegrationTemplate.objects.get(pk=template_id)
+            except IntegrationTemplate.DoesNotExist:
+                pass
+
         svc = OrderService.objects.create(
+            template=template,
             business_id=business_id,
             business_name=request.data.get('business_name', ''),
             service_name=service_name,
             api_url=api_url,
             api_secret=request.data.get('api_secret', ''),
+            bot_token=request.data.get('bot_token', ''),
             poll_enabled=request.data.get('poll_enabled', False),
             poll_interval=request.data.get('poll_interval', 10),
             is_active=request.data.get('is_active', True),
@@ -1340,7 +1373,7 @@ class OrderServiceUpdateView(APIView):
             return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
 
         for field in ('business_name', 'service_name', 'api_url', 'api_secret',
-                      'poll_enabled', 'poll_interval', 'is_active'):
+                      'bot_token', 'poll_enabled', 'poll_interval', 'is_active'):
             if field in request.data:
                 setattr(svc, field, request.data[field])
         svc.save()
@@ -1358,4 +1391,99 @@ class OrderServiceDeleteView(APIView):
         except OrderService.DoesNotExist:
             return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
         svc.delete()
+        return Response({'success': True})
+
+
+# ============================================================
+# INTEGRATION TEMPLATE CRUD (Integratsiya shablonlari)
+# ============================================================
+
+def _template_dict(t):
+    return {
+        'id': t.id,
+        'name': t.name,
+        'slug': t.slug,
+        'description': t.description,
+        'icon': t.icon,
+        'color': t.color,
+        'base_api_url': t.base_api_url,
+        'default_poll_interval': t.default_poll_interval,
+        'is_active': t.is_active,
+        'sort_order': t.sort_order,
+        'created_at': t.created_at.isoformat(),
+        'connected_count': t.services.filter(is_active=True).count(),
+    }
+
+
+class IntegrationTemplateListView(APIView):
+    """GET /api/v2/integration-template/list/"""
+
+    def get(self, request):
+        qs = IntegrationTemplate.objects.all()
+        if request.GET.get('active_only') == 'true':
+            qs = qs.filter(is_active=True)
+        return Response({'success': True, 'result': [_template_dict(t) for t in qs]})
+
+
+class IntegrationTemplateCreateView(APIView):
+    """POST /api/v2/integration-template/create/"""
+
+    def post(self, request):
+        name = request.data.get('name', '').strip()
+        slug = request.data.get('slug', '').strip()
+
+        if not name or not slug:
+            return Response({
+                'success': False,
+                'error': 'name va slug majburiy',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if IntegrationTemplate.objects.filter(slug=slug).exists():
+            return Response({
+                'success': False,
+                'error': f'"{slug}" slug allaqachon mavjud',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        t = IntegrationTemplate.objects.create(
+            name=name,
+            slug=slug,
+            description=request.data.get('description', ''),
+            icon=request.data.get('icon', '🔗'),
+            color=request.data.get('color', '#1890ff'),
+            base_api_url=request.data.get('base_api_url', ''),
+            default_poll_interval=request.data.get('default_poll_interval', 10),
+            is_active=request.data.get('is_active', True),
+            sort_order=request.data.get('sort_order', 0),
+        )
+        return Response({'success': True, 'result': _template_dict(t)}, status=status.HTTP_201_CREATED)
+
+
+class IntegrationTemplateUpdateView(APIView):
+    """PUT /api/v2/integration-template/{id}/update/"""
+
+    def put(self, request, pk):
+        try:
+            t = IntegrationTemplate.objects.get(pk=pk)
+        except IntegrationTemplate.DoesNotExist:
+            return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
+
+        for field in ('name', 'slug', 'description', 'icon', 'color',
+                      'base_api_url', 'default_poll_interval', 'is_active', 'sort_order'):
+            if field in request.data:
+                setattr(t, field, request.data[field])
+        t.save()
+        return Response({'success': True, 'result': _template_dict(t)})
+
+    patch = put
+
+
+class IntegrationTemplateDeleteView(APIView):
+    """DELETE /api/v2/integration-template/{id}/delete/"""
+
+    def delete(self, request, pk):
+        try:
+            t = IntegrationTemplate.objects.get(pk=pk)
+        except IntegrationTemplate.DoesNotExist:
+            return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
+        t.delete()
         return Response({'success': True})

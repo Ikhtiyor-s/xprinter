@@ -17,10 +17,22 @@ else:
     BASE_DIR = Path(__file__).parent
 
 CONFIG_FILE        = BASE_DIR / 'config.ini'
-PRINTERS_FILE      = BASE_DIR / 'printers.json'
+PRINTERS_FILE      = BASE_DIR / 'printers.json'  # fallback (eski format)
 LOG_FILE           = BASE_DIR / 'agent.log'
 SAVED_LOGINS_FILE  = BASE_DIR / 'saved_logins.json'
-PRODUCTS_CACHE     = BASE_DIR / 'products_cache.json'
+PRODUCTS_CACHE     = BASE_DIR / 'products_cache.json'  # fallback (eski format)
+
+def _printers_path(business_id=None):
+    """Business ID bo'yicha alohida printers fayli"""
+    if business_id:
+        return BASE_DIR / f'printers_{business_id}.json'
+    return PRINTERS_FILE
+
+def _cache_path(business_id=None):
+    """Business ID bo'yicha alohida products cache fayli"""
+    if business_id:
+        return BASE_DIR / f'products_cache_{business_id}.json'
+    return PRODUCTS_CACHE
 
 # ── SERVER URL (server_url.txt dan o'qiladi, aks holda default) ─────────
 _SERVER_URL_FILE = BASE_DIR / 'server_url.txt'
@@ -30,7 +42,7 @@ def _load_server_url():
             url = _SERVER_URL_FILE.read_text(encoding='utf-8').strip()
             if url: return url.rstrip('/')
         except: pass
-    return "http://localhost:8080"
+    return "http://localhost:8799"
 
 SERVER_URL = _load_server_url()
 
@@ -91,10 +103,9 @@ def is_logged_in():
     return bool(_cfg_get(c, 'auth', 'username') and _cfg_get(c, 'business', 'id'))
 
 def do_logout():
+    """Faqat config o'chiriladi, printer sozlamalari saqlanib qoladi"""
     if CONFIG_FILE.exists():
         CONFIG_FILE.unlink()
-    if PRINTERS_FILE.exists():
-        PRINTERS_FILE.unlink()
 
 def load_saved_logins():
     if SAVED_LOGINS_FILE.exists():
@@ -190,15 +201,27 @@ def api_agent_auth(username, password):
     except Exception as e:
         return False, None, None, str(e)
 
-def load_printers():
-    if PRINTERS_FILE.exists():
+def load_printers(business_id=None):
+    """Business ID bo'yicha printerlarni yuklaydi. Eski formatdan migration ham qiladi."""
+    pf = _printers_path(business_id)
+    if pf.exists():
         try:
-            with open(PRINTERS_FILE, encoding='utf-8') as f: return json.load(f)
+            with open(pf, encoding='utf-8') as f: return json.load(f)
+        except: pass
+    # Migration: eski printers.json mavjud bo'lsa, yangi formatga ko'chirish
+    if business_id and PRINTERS_FILE.exists():
+        try:
+            with open(PRINTERS_FILE, encoding='utf-8') as f:
+                old_data = json.load(f)
+            if old_data:
+                save_printers(old_data, business_id)
+                return old_data
         except: pass
     return []
 
-def save_printers(ps):
-    with open(PRINTERS_FILE, 'w', encoding='utf-8') as f:
+def save_printers(ps, business_id=None):
+    pf = _printers_path(business_id)
+    with open(pf, 'w', encoding='utf-8') as f:
         json.dump(ps, f, ensure_ascii=False, indent=2)
 
 # ── WINDOWS AUTOSTART (registry) ─────────────────────────────
@@ -332,7 +355,7 @@ class Agent:
         self.username      = _cfg_get(c,'auth','username','')
         self.password      = _cfg_get(c,'auth','password','')
         self.poll_interval = int(_cfg_get(c,'settings','poll_interval','3'))
-        self.printers      = load_printers()
+        self.printers      = load_printers(self.business_id)
 
     def log(self, msg, lvl='info'):
         ts = datetime.now().strftime('%H:%M:%S')
@@ -418,7 +441,7 @@ class Agent:
 def make_tray_image(active=False):
     img  = Image.new('RGBA', (64, 64), (0,0,0,0))
     draw = ImageDraw.Draw(img)
-    c    = (0, 212, 170) if active else (200, 60, 60)
+    c    = (79, 70, 229) if active else (220, 38, 38)
     # Printer body
     draw.rounded_rectangle([8,20,56,46], radius=4, fill=c)
     # Paper tray (top)
@@ -427,7 +450,7 @@ def make_tray_image(active=False):
     draw.rectangle([20,38,44,58], fill='white')
     draw.rectangle([24,44,40,48], fill=c)
     # Status dot
-    dot = (0,230,120) if active else (255,80,80)
+    dot = (22,163,74) if active else (220,38,38)
     draw.ellipse([42,24,54,36], fill=dot, outline='white', width=1)
     return img
 
@@ -448,7 +471,7 @@ class PrinterDlg(tk.Toplevel):
         self._current_pid  = (data or {}).get('id')  # tahrirlash rejimida joriy printer ID
         self._prod_loading = False
         self.title("Printer" + (" tahrirlash" if data else " qo'shish"))
-        self.configure(bg='#1a1a2e')
+        self.configure(bg='#f0f4f8')
         self.resizable(True, True)
 
         # Ekran o'lchamiga moslash
@@ -472,56 +495,64 @@ class PrinterDlg(tk.Toplevel):
 
     def _lbl(self, parent, text):
         return tk.Label(parent, text=text, width=16, anchor='w',
-                        font=('Segoe UI',10), fg='#888', bg='#1a1a2e')
+                        font=('Segoe UI',10), fg='#475569', bg='#ffffff')
 
     def _entry(self, parent, val=''):
-        e = tk.Entry(parent, font=('Segoe UI',10), bg='#16213e', fg='white',
-                     insertbackground='white', relief='flat', bd=5)
+        e = tk.Entry(parent, font=('Segoe UI',10), bg='#f8fafc', fg='#1e293b',
+                     insertbackground='#1e293b', relief='solid', bd=1)
         e.insert(0, val); return e
 
     def _build(self, d):
         fp = dict(padx=16, pady=4)
 
         # ══ YUQORI QISM: har doim ko'rinadigan maydonlar (fixed) ════════
-        top = tk.Frame(self, bg='#1a1a2e')
+        top = tk.Frame(self, bg='#ffffff')
         top.pack(side='top', fill='x')
 
         # Detected printers (collapsible-style, max 4 ta ko'rinadi)
-        dp = tk.Frame(top, bg='#0f3460', padx=12, pady=6)
+        dp = tk.Frame(top, bg='#eef2ff', padx=12, pady=6)
         dp.pack(fill='x')
-        dh = tk.Frame(dp, bg='#0f3460'); dh.pack(fill='x')
+        dh = tk.Frame(dp, bg='#eef2ff'); dh.pack(fill='x')
         tk.Label(dh, text="🔍 Topilgan printerlar",
-                 font=('Segoe UI',9,'bold'), fg='#00d4aa', bg='#0f3460').pack(side='left')
+                 font=('Segoe UI',9,'bold'), fg='#4f46e5', bg='#eef2ff').pack(side='left')
         tk.Button(dh, text="🔄", command=self._refresh_detected,
-                  bg='#16213e', fg='#aaa', relief='flat',
+                  bg='#e0e7ff', fg='#4f46e5', relief='flat',
                   font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='right')
         # Max 4 ta printer ko'rinsin (scroll emas, kichik ekran uchun)
-        self._det_frame = tk.Frame(dp, bg='#0f3460')
+        self._det_frame = tk.Frame(dp, bg='#eef2ff')
         self._det_frame.pack(fill='x', pady=(4,0))
         self._populate_detected()
 
+        # Yorliq (display name) — masalan: "Oshxona", "Osh", "Somsa"
+        rl = tk.Frame(top, bg='#ffffff'); rl.pack(fill='x', **fp)
+        self._lbl(rl, "Yorliq *").pack(side='left')
+        self._label = self._entry(rl, d.get('label', ''))
+        self._label.pack(side='left', fill='x', expand=True)
+        tk.Label(top, text="  Masalan: Oshxona, Osh, Somsa, Bar",
+                 font=('Segoe UI',8), fg='#4f46e5', bg='#ffffff').pack(anchor='w', padx=16)
+
         # Printer nomi
-        r = tk.Frame(top, bg='#1a1a2e'); r.pack(fill='x', **fp)
+        r = tk.Frame(top, bg='#ffffff'); r.pack(fill='x', **fp)
         self._lbl(r, "Printer nomi *").pack(side='left')
         self._name = self._entry(r, d.get('name', ''))
         self._name.pack(side='left', fill='x', expand=True)
         tk.Label(top, text="  Server printer nomiga aynan mos bo'lsin",
-                 font=('Segoe UI',8), fg='#444', bg='#1a1a2e').pack(anchor='w', padx=16)
+                 font=('Segoe UI',8), fg='#94a3b8', bg='#ffffff').pack(anchor='w', padx=16)
 
         # Ulanish turi
-        r2 = tk.Frame(top, bg='#1a1a2e'); r2.pack(fill='x', **fp)
+        r2 = tk.Frame(top, bg='#ffffff'); r2.pack(fill='x', **fp)
         self._lbl(r2, "Ulanish turi *").pack(side='left')
         self._conn = tk.StringVar(value=d.get('connection', 'network'))
         for v, t in [('network','🌐 Tarmoq'), ('usb','🖨 USB'), ('auto','☁ Auto')]:
             tk.Radiobutton(r2, text=t, variable=self._conn, value=v,
-                           bg='#1a1a2e', fg='white', selectcolor='#0f3460',
-                           activebackground='#1a1a2e', font=('Segoe UI',9),
+                           bg='#ffffff', fg='#1e293b', selectcolor='#eef2ff',
+                           activebackground='#ffffff', font=('Segoe UI',9),
                            command=self._sync).pack(side='left', padx=6)
 
         # IP / USB (conditional)
-        self._nf = tk.Frame(top, bg='#1a1a2e')
+        self._nf = tk.Frame(top, bg='#ffffff')
         self._nf.pack(fill='x', padx=16)
-        rn = tk.Frame(self._nf, bg='#1a1a2e'); rn.pack(fill='x', pady=2)
+        rn = tk.Frame(self._nf, bg='#ffffff'); rn.pack(fill='x', pady=2)
         self._lbl(rn, "IP manzil *").pack(side='left')
         self._ip   = self._entry(rn, d.get('ip', ''))
         self._ip.pack(side='left', fill='x', expand=True)
@@ -529,9 +560,9 @@ class PrinterDlg(tk.Toplevel):
         self._port = self._entry(rn, str(d.get('port', 9100)))
         self._port.config(width=7); self._port.pack(side='left')
 
-        self._uf = tk.Frame(top, bg='#1a1a2e')
+        self._uf = tk.Frame(top, bg='#ffffff')
         self._uf.pack(fill='x', padx=16)
-        ru = tk.Frame(self._uf, bg='#1a1a2e'); ru.pack(fill='x', pady=2)
+        ru = tk.Frame(self._uf, bg='#ffffff'); ru.pack(fill='x', pady=2)
         self._lbl(ru, "Printer nomi *").pack(side='left')
         self._usb = tk.StringVar(value=d.get('usb', ''))
         self._cb  = ttk.Combobox(ru, textvariable=self._usb, font=('Segoe UI',10))
@@ -539,49 +570,50 @@ class PrinterDlg(tk.Toplevel):
         self._cb.pack(side='left', fill='x', expand=True)
 
         # Qog'oz kengligi
-        rw = tk.Frame(top, bg='#1a1a2e'); rw.pack(fill='x', **fp)
+        rw = tk.Frame(top, bg='#ffffff'); rw.pack(fill='x', **fp)
         self._lbl(rw, "Qog'oz kengligi").pack(side='left')
         self._pw = tk.StringVar(value=str(d.get('paper_width', 80)))
         for v, t in [('80','80 mm'), ('58','58 mm')]:
             tk.Radiobutton(rw, text=t, variable=self._pw, value=v,
-                           bg='#1a1a2e', fg='white', selectcolor='#0f3460',
-                           activebackground='#1a1a2e', font=('Segoe UI',9)).pack(side='left', padx=8)
+                           bg='#ffffff', fg='#1e293b', selectcolor='#eef2ff',
+                           activebackground='#ffffff', font=('Segoe UI',9)).pack(side='left', padx=8)
 
         # ══ PASTKI QISM: Saqlash/Bekor — side='bottom', har doim ko'rinadi ══
-        bf = tk.Frame(self, bg='#16213e'); bf.pack(side='bottom', fill='x', padx=0, pady=0)
-        tk.Frame(bf, bg='#0f3460', height=1).pack(fill='x')
-        btn_row = tk.Frame(bf, bg='#16213e'); btn_row.pack(fill='x', padx=16, pady=8)
-        tk.Button(btn_row, text="✓ Saqlash", command=self._ok,
-                  bg='#00b894', fg='white', font=('Segoe UI',10,'bold'),
-                  relief='flat', padx=20, pady=7, cursor='hand2').pack(side='right', padx=(8,0))
+        bf = tk.Frame(self, bg='#e2e8f0'); bf.pack(side='bottom', fill='x', padx=0, pady=0)
+        tk.Frame(bf, bg='#cbd5e1', height=1).pack(fill='x')
+        btn_row = tk.Frame(bf, bg='#e2e8f0'); btn_row.pack(fill='x', padx=16, pady=8)
+        tk.Button(btn_row, text="✓  Saqlash", command=self._ok,
+                  bg='#4f46e5', fg='white', font=('Segoe UI',10,'bold'),
+                  relief='flat', padx=20, pady=7, cursor='hand2',
+                  activebackground='#4338ca', activeforeground='white').pack(side='right', padx=(8,0))
         tk.Button(btn_row, text="Bekor", command=self.destroy,
-                  bg='#444', fg='white', font=('Segoe UI',10),
+                  bg='#94a3b8', fg='white', font=('Segoe UI',10),
                   relief='flat', padx=16, pady=7, cursor='hand2').pack(side='right')
 
         # ══ O'RTA QISM: Mahsulotlar — qolgan joyni to'ldiradi, scroll bilan ════
-        tk.Frame(self, bg='#0f3460', height=1).pack(fill='x')
-        mh = tk.Frame(self, bg='#1a1a2e', padx=16, pady=4)
+        tk.Frame(self, bg='#cbd5e1', height=1).pack(fill='x')
+        mh = tk.Frame(self, bg='#ffffff', padx=16, pady=4)
         mh.pack(fill='x')
         tk.Label(mh, text="🍽  Mahsulotlar",
-                 font=('Segoe UI',9,'bold'), fg='#e0e0e0', bg='#1a1a2e').pack(side='left')
+                 font=('Segoe UI',9,'bold'), fg='#1e293b', bg='#ffffff').pack(side='left')
         self._prod_count_lbl = tk.Label(mh, text="",
-                 font=('Segoe UI',8), fg='#555', bg='#1a1a2e')
+                 font=('Segoe UI',8), fg='#64748b', bg='#ffffff')
         self._prod_count_lbl.pack(side='left', padx=4)
-        abf = tk.Frame(mh, bg='#1a1a2e'); abf.pack(side='right')
+        abf = tk.Frame(mh, bg='#ffffff'); abf.pack(side='right')
         tk.Button(abf, text="☑ Barchasi", command=self._check_all,
-                  bg='#0f3460', fg='#aaa', relief='flat',
+                  bg='#e0e7ff', fg='#4f46e5', relief='flat',
                   font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='left', padx=2)
         tk.Button(abf, text="☐ Hech biri", command=self._uncheck_all,
-                  bg='#0f3460', fg='#aaa', relief='flat',
+                  bg='#e0e7ff', fg='#4f46e5', relief='flat',
                   font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='left')
 
         # Scrollable products container — fill='both', expand=True (qolgan joy)
-        pc = tk.Frame(self, bg='#0d1117')
+        pc = tk.Frame(self, bg='#fafbfc')
         pc.pack(fill='both', expand=True, padx=0, pady=0)
 
-        self._prod_canvas = tk.Canvas(pc, bg='#0d1117', highlightthickness=0)
+        self._prod_canvas = tk.Canvas(pc, bg='#fafbfc', highlightthickness=0)
         vsb = ttk.Scrollbar(pc, orient='vertical', command=self._prod_canvas.yview)
-        self._prod_sf = tk.Frame(self._prod_canvas, bg='#0d1117')
+        self._prod_sf = tk.Frame(self._prod_canvas, bg='#fafbfc')
         self._prod_sf.bind('<Configure>', lambda e: self._prod_canvas.configure(
             scrollregion=self._prod_canvas.bbox('all')))
         self._prod_win = self._prod_canvas.create_window((0, 0), window=self._prod_sf, anchor='nw')
@@ -600,7 +632,7 @@ class PrinterDlg(tk.Toplevel):
         self._prod_status = tk.Label(self._prod_sf,
             text="⏳ Mahsulotlar yuklanmoqda..." if self._creds else
                  "ℹ  Tizimga kirish kerak",
-            font=('Segoe UI',9), fg='#555', bg='#0d1117', anchor='w')
+            font=('Segoe UI',9), fg='#64748b', bg='#fafbfc', anchor='w')
         self._prod_status.pack(fill='x', padx=12, pady=10)
 
     def _on_scroll(self, event):
@@ -611,15 +643,15 @@ class PrinterDlg(tk.Toplevel):
             w.destroy()
         if not self._lps:
             tk.Label(self._det_frame, text="  Printer topilmadi",
-                     font=('Segoe UI',8), fg='#555', bg='#0f3460').pack(anchor='w')
+                     font=('Segoe UI',8), fg='#94a3b8', bg='#eef2ff').pack(anchor='w')
             return
         # Max 3 ta ko'rinadigan, scroll bilan
-        det_canvas = tk.Canvas(self._det_frame, bg='#0f3460',
+        det_canvas = tk.Canvas(self._det_frame, bg='#eef2ff',
                                 highlightthickness=0,
                                 height=min(len(self._lps), 3) * 26)
         det_vsb = ttk.Scrollbar(self._det_frame, orient='vertical',
                                   command=det_canvas.yview)
-        det_inner = tk.Frame(det_canvas, bg='#0f3460')
+        det_inner = tk.Frame(det_canvas, bg='#eef2ff')
         det_inner.bind('<Configure>', lambda e: det_canvas.configure(
             scrollregion=det_canvas.bbox('all')))
         det_win = det_canvas.create_window((0, 0), window=det_inner, anchor='nw')
@@ -632,12 +664,12 @@ class PrinterDlg(tk.Toplevel):
         for pname in self._lps:
             btn = tk.Button(det_inner, text=f"🖨  {pname}",
                             command=lambda n=pname: self._select_detected(n),
-                            bg='#16213e', fg='#e0e0e0', relief='flat',
+                            bg='#e0e7ff', fg='#1e293b', relief='flat',
                             font=('Segoe UI',9), anchor='w', cursor='hand2',
                             padx=8, pady=3, bd=0)
             btn.pack(fill='x', pady=1)
-            btn.bind('<Enter>', lambda e, b=btn: b.config(bg='#1a1a2e'))
-            btn.bind('<Leave>', lambda e, b=btn: b.config(bg='#16213e'))
+            btn.bind('<Enter>', lambda e, b=btn: b.config(bg='#c7d2fe'))
+            btn.bind('<Leave>', lambda e, b=btn: b.config(bg='#e0e7ff'))
 
     def _refresh_detected(self):
         self._lps = local_printers()
@@ -651,6 +683,8 @@ class PrinterDlg(tk.Toplevel):
         if not self._name.get().strip():
             self._name.delete(0, 'end')
             self._name.insert(0, name)
+        if not self._label.get().strip():
+            self._label.focus()
 
     # ── Mahsulotlar ───────────────────────────────────────────
     def _load_products(self, existing_data):
@@ -658,20 +692,23 @@ class PrinterDlg(tk.Toplevel):
         Server ishlamasa — lokal keshdan yuklaydi."""
         su, uname, pwd, bid = self._creds
         bid_int = int(bid)
+        cache_file = _cache_path(bid)
         ok, products, err = api_fetch_menu(su, uname, pwd, bid_int)
 
         if ok and products:
-            # Keshga saqlash
+            # Keshga saqlash (business_id bo'yicha alohida)
             try:
-                with open(PRODUCTS_CACHE, 'w', encoding='utf-8') as f:
+                with open(cache_file, 'w', encoding='utf-8') as f:
                     json.dump({'bid': bid_int, 'products': products}, f, ensure_ascii=False)
             except Exception:
                 pass
         elif not ok:
             # Server ishlamadi — keshdan yuklash
             try:
-                if PRODUCTS_CACHE.exists():
-                    with open(PRODUCTS_CACHE, encoding='utf-8') as f:
+                # Avval yangi formatdagi kesh
+                cf = cache_file if cache_file.exists() else PRODUCTS_CACHE
+                if cf.exists():
+                    with open(cf, encoding='utf-8') as f:
                         cached = json.load(f)
                     if cached.get('bid') == bid_int and cached.get('products'):
                         products = cached['products']
@@ -696,7 +733,7 @@ class PrinterDlg(tk.Toplevel):
 
         if err:
             self._prod_status = tk.Label(self._prod_sf, text=f"⚠  {err}",
-                font=('Segoe UI',8), fg='#e17055', bg='#0d1117', anchor='w',
+                font=('Segoe UI',8), fg='#dc2626', bg='#fafbfc', anchor='w',
                 wraplength=380, justify='left')
             self._prod_status.pack(fill='x', padx=8, pady=8)
             self._prod_count_lbl.config(text="— xato")
@@ -704,7 +741,7 @@ class PrinterDlg(tk.Toplevel):
         if not products:
             self._prod_status = tk.Label(self._prod_sf,
                 text="ℹ  Nonbor menyuda mahsulotlar yo'q. Avval Nonbor panel da mahsulot qo'shing.",
-                font=('Segoe UI',8), fg='#888', bg='#0d1117', anchor='w',
+                font=('Segoe UI',8), fg='#94a3b8', bg='#fafbfc', anchor='w',
                 wraplength=380, justify='left')
             self._prod_status.pack(fill='x', padx=8, pady=8)
             self._prod_count_lbl.config(text="— 0 ta")
@@ -731,20 +768,20 @@ class PrinterDlg(tk.Toplevel):
         for cat_name, items in sorted(cats.items()):
             # Kategoriya header
             tk.Label(self._prod_sf, text=f"  {cat_name}",
-                     font=('Segoe UI',9,'bold'), fg='#00d4aa', bg='#0d1117',
+                     font=('Segoe UI',9,'bold'), fg='#4f46e5', bg='#fafbfc',
                      anchor='w').pack(fill='x', padx=4, pady=(6,2))
             for p in items:
                 pid = p.get('id')
                 pname = p.get('name', '')
                 var = tk.BooleanVar(value=(pid in existing_ids))
                 self._checkvars[pid] = var
-                row = tk.Frame(self._prod_sf, bg='#0d1117')
+                row = tk.Frame(self._prod_sf, bg='#fafbfc')
                 row.pack(fill='x', padx=4, pady=1)
                 cb = tk.Checkbutton(row, variable=var,
                     text=f"  {pname}",
-                    font=('Segoe UI',9), fg='#e0e0e0', bg='#0d1117',
-                    selectcolor='#0f3460', activebackground='#0d1117',
-                    activeforeground='#e0e0e0',
+                    font=('Segoe UI',9), fg='#1e293b', bg='#fafbfc',
+                    selectcolor='#eef2ff', activebackground='#fafbfc',
+                    activeforeground='#1e293b',
                     anchor='w', command=self._update_count)
                 cb.pack(side='left', fill='x', expand=True)
                 # Qaysi printerga biriktirilgan
@@ -752,7 +789,7 @@ class PrinterDlg(tk.Toplevel):
                 if assigned:
                     lbl_txt = "🖨 " + ",  ".join(assigned)
                     tk.Label(row, text=lbl_txt,
-                             font=('Segoe UI', 8), fg='#00d4aa', bg='#0d1117',
+                             font=('Segoe UI', 8), fg='#4f46e5', bg='#fafbfc',
                              anchor='e').pack(side='right', padx=(0, 6))
 
         self._update_count()
@@ -762,7 +799,7 @@ class PrinterDlg(tk.Toplevel):
         selected = sum(1 for v in self._checkvars.values() if v.get())
         self._prod_count_lbl.config(
             text=f"— {selected}/{total} tanlangan",
-            fg='#00d4aa' if selected else '#555')
+            fg='#4f46e5' if selected else '#94a3b8')
 
     def _check_all(self):
         for v in self._checkvars.values(): v.set(True)
@@ -786,7 +823,10 @@ class PrinterDlg(tk.Toplevel):
                 except: pass
 
     def _ok(self):
+        label = self._label.get().strip()
         name = self._name.get().strip()
+        if not label:
+            messagebox.showwarning("","Yorliq kiriting! (masalan: Oshxona, Osh, Somsa)",parent=self); return
         if not name:
             messagebox.showwarning("","Printer nomini kiriting!",parent=self); return
         conn = self._conn.get()
@@ -804,6 +844,7 @@ class PrinterDlg(tk.Toplevel):
 
         self.result = {
             'id':           str(uuid.uuid4()),
+            'label':        label,
             'name':         name,
             'connection':   conn,
             'ip':           self._ip.get().strip(),
@@ -818,16 +859,18 @@ class PrinterDlg(tk.Toplevel):
         self.destroy()
 
 # ── SETTINGS WINDOW ──────────────────────────────────────────
-BG='#1a1a2e'; BG2='#16213e'; BG3='#0f3460'
-ACCENT='#00d4aa'; RED='#d63031'; GREEN='#00b894'
-PURPLE='#6c5ce7'; ORANGE='#e17055'
-FG='#e0e0e0'; FGD='#666'
+# ── LIGHT THEME ──
+BG='#f0f4f8'; BG2='#ffffff'; BG3='#e2e8f0'
+ACCENT='#4f46e5'; RED='#dc2626'; GREEN='#16a34a'
+PURPLE='#7c3aed'; ORANGE='#ea580c'
+FG='#1e293b'; FGD='#64748b'
+CARD='#ffffff'; BORDER='#cbd5e1'; HOVER='#eef2ff'
 
 class SettingsWindow:
     def __init__(self, agent: Agent, on_close_cb=None):
         self.agent      = agent
         self._on_close  = on_close_cb
-        self._printers  = load_printers()
+        self._printers  = load_printers(agent.business_id)
         self._main_frame = None
         self._login_frame = None
 
@@ -841,27 +884,29 @@ class SettingsWindow:
         self._build()
 
     def _btn(self, p, t, bg, cmd, **kw):
-        return tk.Button(p, text=t, command=cmd, bg=bg, fg='white',
+        fg = kw.get('fg', 'white')
+        return tk.Button(p, text=t, command=cmd, bg=bg, fg=fg,
                          font=kw.get('font',('Segoe UI',9)), relief='flat',
                          padx=kw.get('padx',12), pady=4, cursor='hand2',
-                         activebackground=bg, activeforeground='white')
+                         activebackground=bg, activeforeground=fg)
 
     def _build(self):
-        # ── Header (always shown)
-        h = tk.Frame(self.win, bg=BG2, pady=12)
+        # ── Header (gradient-style)
+        h = tk.Frame(self.win, bg='#4f46e5', pady=14)
         h.pack(fill='x')
         tk.Label(h, text="🖨  NONBOR PRINT AGENT",
-                 font=('Segoe UI',14,'bold'), fg=ACCENT, bg=BG2).pack()
-        tk.Label(h, text="nonbor.uz  |  Printer agenti",
-                 font=('Segoe UI',9), fg=FGD, bg=BG2).pack()
+                 font=('Segoe UI',15,'bold'), fg='white', bg='#4f46e5').pack()
+        tk.Label(h, text="nonbor.uz  •  Chop etish agenti",
+                 font=('Segoe UI',9), fg='#c7d2fe', bg='#4f46e5').pack()
 
         # ── Footer (always shown)
-        ft = tk.Frame(self.win, bg=BG2, pady=7, padx=16)
+        ft = tk.Frame(self.win, bg=BG3, pady=7, padx=16)
         ft.pack(fill='x', side='bottom')
+        tk.Frame(self.win, bg=BORDER, height=1).pack(fill='x', side='bottom')
         self._auto = tk.BooleanVar(value=get_autostart())
         ttk.Checkbutton(ft, text="Windows yonganda avtomatik ishga tushir",
                         variable=self._auto, command=self._toggle_auto).pack(side='left')
-        self._btn(ft, "✕ Chiqish", '#2d2d2d', self._quit, padx=10).pack(side='right')
+        self._btn(ft, "✕ Chiqish", '#94a3b8', self._quit, padx=10).pack(side='right')
 
         # ── Content area
         self._content = tk.Frame(self.win, bg=BG)
@@ -874,62 +919,73 @@ class SettingsWindow:
 
     # ── LOGIN FRAME ───────────────────────────────────────────
     def _show_login(self):
-        self.win.geometry("440x380")
+        self.win.geometry("480x480")
         if self._main_frame:
             self._main_frame.pack_forget()
         if self._login_frame:
             self._login_frame.destroy()
 
         f = tk.Frame(self._content, bg=BG)
-        f.pack(expand=True)
+        f.pack(fill='both', expand=True)
         self._login_frame = f
         self._saved_logins = load_saved_logins()
 
-        tk.Label(f, text="Admin tomonidan berilgan login va parolni kiriting",
-                 font=('Segoe UI',9), fg=FGD, bg=BG, wraplength=340,
-                 justify='center').pack(pady=(24,16))
+        # Spacer top
+        tk.Frame(f, bg=BG, height=16).pack()
 
-        # Login (Combobox — saqlangan loginlar)
-        lf = tk.Frame(f, bg=BG); lf.pack(pady=5)
-        tk.Label(lf, text="Login", font=('Segoe UI',10), fg='#aaa', bg=BG,
-                 width=8, anchor='e').pack(side='left')
+        # Card frame
+        card = tk.Frame(f, bg=CARD, padx=28, pady=20,
+                        highlightbackground='#e2e8f0', highlightthickness=1)
+        card.pack(padx=24, fill='x')
+
+        # Title
+        title_f = tk.Frame(card, bg=CARD); title_f.pack(fill='x', pady=(0,12))
+        tk.Label(title_f, text="Tizimga kirish",
+                 font=('Segoe UI',14,'bold'), fg='#1e293b', bg=CARD).pack(anchor='w')
+        tk.Label(title_f, text="Admin berilgan login va parolni kiriting",
+                 font=('Segoe UI',9), fg='#94a3b8', bg=CARD).pack(anchor='w')
+
+        # Login label + input
+        tk.Label(card, text="Login", font=('Segoe UI',9,'bold'), fg='#475569', bg=CARD,
+                 anchor='w').pack(fill='x')
         usernames = [l['username'] for l in self._saved_logins]
-        self._l_user = ttk.Combobox(lf, values=usernames,
-                                     font=('Segoe UI',12), width=22)
-        self._l_user.pack(side='left', padx=(8,0))
+        self._l_user = ttk.Combobox(card, values=usernames,
+                                     font=('Segoe UI',11), width=28)
+        self._l_user.pack(fill='x', pady=(3,12), ipady=3)
         self._l_user.bind('<<ComboboxSelected>>', self._on_login_select)
 
-        # Parol + ko'z tugmasi
-        pf = tk.Frame(f, bg=BG); pf.pack(pady=5)
-        tk.Label(pf, text="Parol", font=('Segoe UI',10), fg='#aaa', bg=BG,
-                 width=8, anchor='e').pack(side='left')
+        # Parol label + input
+        tk.Label(card, text="Parol", font=('Segoe UI',9,'bold'), fg='#475569', bg=CARD,
+                 anchor='w').pack(fill='x')
+        pf = tk.Frame(card, bg=CARD); pf.pack(fill='x', pady=(3,8))
         self._pass_visible = False
-        self._l_pass = tk.Entry(pf, font=('Segoe UI',12), bg=BG2, fg=FG,
-                                 insertbackground=FG, relief='flat', bd=6, width=20,
+        self._l_pass = tk.Entry(pf, font=('Segoe UI',11), bg='#f8fafc', fg=FG,
+                                 insertbackground=FG, relief='solid', bd=1,
                                  show='●')
-        self._l_pass.pack(side='left', padx=(8,0))
+        self._l_pass.pack(side='left', fill='x', expand=True, ipady=4)
         self._l_eye = tk.Button(pf, text='👁', command=self._toggle_pass,
-                                 bg=BG2, fg='#888', relief='flat',
-                                 font=('Segoe UI',10), cursor='hand2', padx=4, bd=0)
-        self._l_eye.pack(side='left', padx=(2,0))
+                                 bg='#f1f5f9', fg='#94a3b8', relief='flat',
+                                 font=('Segoe UI',10), cursor='hand2', padx=8, bd=0)
+        self._l_eye.pack(side='left', padx=(4,0))
         self._l_pass.bind('<Return>', lambda e: self._do_login())
 
         # Error label
-        self._l_err = tk.Label(f, text='', font=('Segoe UI',9), fg=RED, bg=BG)
-        self._l_err.pack(pady=(4,0))
+        self._l_err = tk.Label(card, text='', font=('Segoe UI',9), fg=RED, bg=CARD)
+        self._l_err.pack(fill='x')
 
-        # Kirish button
-        self._l_btn = tk.Button(f, text="▶  Kirish",
+        # ── KIRISH BUTTON (katta, yorqin)
+        self._l_btn = tk.Button(card, text="➜  Kirish",
                                  command=self._do_login,
-                                 bg=GREEN, fg='white',
-                                 font=('Segoe UI',11,'bold'),
-                                 relief='flat', padx=28, pady=8, cursor='hand2')
-        self._l_btn.pack(pady=14)
+                                 bg='#4f46e5', fg='white',
+                                 font=('Segoe UI',12,'bold'),
+                                 relief='flat', pady=10, cursor='hand2',
+                                 activebackground='#4338ca', activeforeground='white')
+        self._l_btn.pack(fill='x', pady=(6,0), ipady=2)
 
         # Saved logins hint
         if self._saved_logins:
-            tk.Label(f, text=f"💾 {len(self._saved_logins)} ta saqlangan login",
-                     font=('Segoe UI',8), fg='#444', bg=BG).pack()
+            tk.Label(f, text=f"💾  {len(self._saved_logins)} ta saqlangan login mavjud",
+                     font=('Segoe UI',8), fg=FGD, bg=BG).pack(pady=(10,0))
 
         self._l_user.focus()
 
@@ -945,7 +1001,7 @@ class SettingsWindow:
     def _toggle_pass(self):
         self._pass_visible = not self._pass_visible
         self._l_pass.config(show='' if self._pass_visible else '●')
-        self._l_eye.config(fg=ACCENT if self._pass_visible else '#888')
+        self._l_eye.config(fg=ACCENT if self._pass_visible else '#94a3b8', bg=CARD)
 
     def _do_login(self):
         u = self._l_user.get().strip()
@@ -953,12 +1009,12 @@ class SettingsWindow:
         if not u or not p:
             self._l_err.config(text="Login va parolni kiriting!")
             return
-        self._l_btn.config(text="Tekshirilmoqda...", state='disabled')
+        self._l_btn.config(text="⏳  Tekshirilmoqda...", state='disabled', bg='#6366f1')
         self._l_err.config(text='')
         self.win.update()
 
         ok, bid, bname, err = api_agent_auth(u, p)
-        self._l_btn.config(text="▶  Kirish", state='normal')
+        self._l_btn.config(text="➜  Kirish", state='normal', bg='#4f46e5')
         if not ok:
             self._l_err.config(text=f"✗ {err}")
             return
@@ -969,12 +1025,13 @@ class SettingsWindow:
         self.agent.business_name = bname
         save_config(self.agent)
         save_login_to_history(u, p)
-        self._printers = load_printers()
+        self._printers = load_printers(bid)
+        self.agent.printers = self._printers
         self._show_main()
 
     # ── MAIN FRAME ────────────────────────────────────────────
     def _show_main(self):
-        self.win.geometry("700x600")
+        self.win.geometry("720x640")
         if self._login_frame:
             self._login_frame.pack_forget()
         if self._main_frame:
@@ -984,85 +1041,90 @@ class SettingsWindow:
         f.pack(fill='both', expand=True)
         self._main_frame = f
 
-        # Status bar
-        sb = tk.Frame(f, bg=BG3, pady=9, padx=16)
-        sb.pack(fill='x')
-        self._dot   = tk.Label(sb, text="●", font=('Segoe UI',16), fg=RED, bg=BG3)
+        # ── Status bar (card style)
+        sb = tk.Frame(f, bg=CARD, pady=10, padx=16, highlightbackground=BORDER,
+                      highlightthickness=1)
+        sb.pack(fill='x', padx=12, pady=(10,0))
+        self._dot   = tk.Label(sb, text="●", font=('Segoe UI',18), fg=RED, bg=CARD)
         self._dot.pack(side='left')
-        self._stlbl = tk.Label(sb, text="To'xtatilgan",
-                                font=('Segoe UI',10,'bold'), fg=FG, bg=BG3)
-        self._stlbl.pack(side='left', padx=8)
-        # Biznes nomi va username
+        info_f = tk.Frame(sb, bg=CARD); info_f.pack(side='left', padx=8)
+        self._stlbl = tk.Label(info_f, text="To'xtatilgan",
+                                font=('Segoe UI',11,'bold'), fg=FG, bg=CARD)
+        self._stlbl.pack(anchor='w')
         biz = self.agent.business_name or f"Biznes #{self.agent.business_id}"
-        self._bizlbl = tk.Label(sb, text=f"👤 {self.agent.username}  |  {biz}",
-                                 font=('Segoe UI',9), fg='#888', bg=BG3)
-        self._bizlbl.pack(side='left', padx=12)
-        self._stats = tk.Label(sb, text="", font=('Segoe UI',9), fg=FGD, bg=BG3)
+        self._bizlbl = tk.Label(info_f, text=f"👤 {self.agent.username}  •  {biz}",
+                                 font=('Segoe UI',9), fg=FGD, bg=CARD)
+        self._bizlbl.pack(anchor='w')
+        self._stats = tk.Label(sb, text="", font=('Segoe UI',9,'bold'), fg=FGD, bg=CARD)
         self._stats.pack(side='right', padx=8)
         self._togbtn = tk.Button(sb, text="▶  ISHGA TUSHIR",
                                   command=self._toggle,
                                   bg=GREEN, fg='white',
                                   font=('Segoe UI',10,'bold'),
-                                  relief='flat', padx=16, pady=3, cursor='hand2')
+                                  relief='flat', padx=18, pady=5, cursor='hand2',
+                                  activebackground='#15803d', activeforeground='white')
         self._togbtn.pack(side='right')
 
-        # User info row (chiqish)
-        uf = tk.Frame(f, bg=BG, padx=16, pady=6); uf.pack(fill='x')
-        self._btn(uf, "🔄 Mahsulotlarni yangilash", '#1a6b3a', self._check_new_products).pack(side='left')
-        self._btn(uf, "⟳ Hisobdan chiqish", '#444', self._do_logout).pack(side='right')
+        # ── Action buttons row
+        uf = tk.Frame(f, bg=BG, padx=12, pady=6); uf.pack(fill='x')
+        self._btn(uf, "🔄  Mahsulotlarni yangilash", '#059669', self._check_new_products).pack(side='left')
+        self._btn(uf, "⟳  Hisobdan chiqish", '#94a3b8', self._do_logout).pack(side='right')
 
-        # Printers section
-        tk.Frame(f, bg=BG3, height=1).pack(fill='x')
-        ph = tk.Frame(f, bg=BG, padx=16, pady=7); ph.pack(fill='x')
-        tk.Label(ph, text="Printerlar", font=('Segoe UI',10,'bold'), fg=FG, bg=BG).pack(side='left')
-        tk.Label(ph, text="— server printer nomiga mos bo'lsin",
-                 font=('Segoe UI',8), fg=FGD, bg=BG).pack(side='left', padx=6)
-        ab = tk.Frame(ph, bg=BG); ab.pack(side='right')
-        for t,bg,fn in [("+ Qo'shish",GREEN,self._add),
-                         ("✎",BG3,self._edit),("⚡ Test",ORANGE,self._tst),
+        # ── Printers section (card)
+        pc = tk.Frame(f, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        pc.pack(fill='x', padx=12, pady=(0,4))
+        ph = tk.Frame(pc, bg=CARD, padx=12, pady=8); ph.pack(fill='x')
+        tk.Label(ph, text="🖨  Printerlar", font=('Segoe UI',10,'bold'), fg=FG, bg=CARD).pack(side='left')
+        tk.Label(ph, text="— server nomi bilan mos bo'lsin",
+                 font=('Segoe UI',8), fg=FGD, bg=CARD).pack(side='left', padx=6)
+        ab = tk.Frame(ph, bg=CARD); ab.pack(side='right')
+        for t,clr,fn in [("+ Qo'shish",GREEN,self._add),
+                         ("✎",'#4f46e5',self._edit),("⚡ Test",ORANGE,self._tst),
                          ("✕",RED,self._del)]:
-            self._btn(ab,t,bg,fn,padx=8 if len(t)<4 else 12).pack(side='left',padx=2)
+            self._btn(ab,t,clr,fn,padx=8 if len(t)<4 else 12).pack(side='left',padx=2)
 
         # Treeview
-        tf = tk.Frame(f, bg=BG, padx=16); tf.pack(fill='x')
+        tf = tk.Frame(pc, bg=CARD, padx=12, pady=(0,8)); tf.pack(fill='x')
         style = ttk.Style(); style.theme_use('default')
-        style.configure('T.Treeview', background='#0d1117', foreground=FG,
-                         fieldbackground='#0d1117', rowheight=24, font=('Segoe UI',9))
-        style.configure('T.Treeview.Heading', background=BG3, foreground=ACCENT,
-                         font=('Segoe UI',9,'bold'))
-        style.map('T.Treeview', background=[('selected',BG3)])
-        cols = ('name','conn','addr','width','prods')
+        style.configure('T.Treeview', background='white', foreground=FG,
+                         fieldbackground='white', rowheight=26, font=('Segoe UI',9))
+        style.configure('T.Treeview.Heading', background='#4f46e5', foreground='white',
+                         font=('Segoe UI',9,'bold'), padding=4)
+        style.map('T.Treeview', background=[('selected','#eef2ff')],
+                  foreground=[('selected','#1e293b')])
+        cols = ('label','name','conn','addr','width','prods')
         self._tree = ttk.Treeview(tf, style='T.Treeview',
                                    columns=cols, show='headings', height=5)
-        for col,(hd,w) in zip(cols,[("Printer nomi",160),
-                                     ("Ulanish",80),("Manzil",190),
-                                     ("Qog'oz",60),("Mahsulotlar",140)]):
+        for col,(hd,w) in zip(cols,[("Yorliq",100),("Printer nomi",130),
+                                     ("Ulanish",70),("Manzil",150),
+                                     ("Qog'oz",50),("Mahsulotlar",120)]):
             self._tree.heading(col, text=hd)
             self._tree.column(col, width=w, anchor='w')
         self._tree.pack(fill='x')
         self._tree.bind('<Double-1>', lambda e: self._edit())
         self._tree.bind('<<TreeviewSelect>>', self._on_tree_select)
 
-        # Mahsulotlar detail panel (tanlangan printer uchun)
-        self._prod_panel = tk.Frame(f, bg=BG2, padx=16, pady=6)
-        self._prod_panel.pack(fill='x', padx=16, pady=(2,0))
+        # Mahsulotlar detail panel
+        self._prod_panel = tk.Frame(pc, bg='#f8fafc', padx=12, pady=6)
+        self._prod_panel.pack(fill='x', padx=12, pady=(0,8))
         self._prod_detail = tk.Label(self._prod_panel,
             text="Printer tanlang — mahsulotlar ko'rinadi",
-            font=('Segoe UI',8), fg=FGD, bg=BG2, anchor='w',
-            wraplength=620, justify='left')
+            font=('Segoe UI',8), fg=FGD, bg='#f8fafc', anchor='w',
+            wraplength=640, justify='left')
         self._prod_detail.pack(fill='x')
 
-        # Log
-        tk.Frame(f, bg=BG3, height=1).pack(fill='x', pady=(8,0))
-        lf2 = tk.Frame(f, bg=BG, padx=16, pady=4); lf2.pack(fill='both', expand=True)
-        tk.Label(lf2, text="Faoliyat jurnali", font=('Segoe UI',8),
-                 fg=FGD, bg=BG).pack(anchor='w')
+        # ── Log (card)
+        lc = tk.Frame(f, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        lc.pack(fill='both', expand=True, padx=12, pady=(0,8))
+        lh = tk.Frame(lc, bg=CARD, padx=12, pady=4); lh.pack(fill='x')
+        tk.Label(lh, text="📋  Faoliyat jurnali", font=('Segoe UI',9,'bold'),
+                 fg=FG, bg=CARD).pack(anchor='w')
         self._log = scrolledtext.ScrolledText(
-            lf2, font=('Consolas',9), bg='#0d1117', fg='#58a6ff',
-            relief='flat', bd=0, state='disabled', height=7)
-        self._log.tag_config('error', foreground='#ff7b72')
-        self._log.tag_config('ok',    foreground='#3fb950')
-        self._log.pack(fill='both', expand=True)
+            lc, font=('Consolas',9), bg='#1e293b', fg='#a5b4fc',
+            relief='flat', bd=0, state='disabled', height=6)
+        self._log.tag_config('error', foreground='#fca5a5')
+        self._log.tag_config('ok',    foreground='#86efac')
+        self._log.pack(fill='both', expand=True, padx=8, pady=(0,8))
 
         self._refresh_tbl()
         self._tick()
@@ -1077,21 +1139,23 @@ class SettingsWindow:
             messagebox.showwarning("Diqqat", "Avval tizimga kiring.", parent=self.win)
             return
 
-        self._log_msg("🔄 Yangi mahsulotlar tekshirilmoqda...")
+        self._logline("🔄 Yangi mahsulotlar tekshirilmoqda...")
 
         def _run():
+            cache_file = _cache_path(bid)
             ok, products, err = api_fetch_menu(su, uname, pwd, bid)
             if ok and products:
                 try:
-                    with open(PRODUCTS_CACHE, 'w', encoding='utf-8') as f:
+                    with open(cache_file, 'w', encoding='utf-8') as f:
                         json.dump({'bid': int(bid), 'products': products}, f, ensure_ascii=False)
                 except Exception:
                     pass
             elif not ok:
                 # Keshdan yuklash
                 try:
-                    if PRODUCTS_CACHE.exists():
-                        with open(PRODUCTS_CACHE, encoding='utf-8') as f:
+                    cf = cache_file if cache_file.exists() else PRODUCTS_CACHE
+                    if cf.exists():
+                        with open(cf, encoding='utf-8') as f:
                             cached = json.load(f)
                         if cached.get('bid') == int(bid) and cached.get('products'):
                             products = cached['products']
@@ -1114,7 +1178,7 @@ class SettingsWindow:
 
             if not new_products:
                 self.win.after(0, lambda: (
-                    self._log_msg("✓ Yangilik yo'q — barcha mahsulotlar allaqachon ro'yxatda."),
+                    self._logline("✓ Yangilik yo'q — barcha mahsulotlar allaqachon ro'yxatda."),
                     messagebox.showinfo(
                         "Yangilik yo'q",
                         "✓ Yangi mahsulot topilmadi.\nBarcha mahsulotlar printerlar ro'yxatida mavjud.",
@@ -1131,28 +1195,40 @@ class SettingsWindow:
         """Yangi mahsulotlarni ko'rsatish dialogi."""
         dlg = tk.Toplevel(self.win)
         dlg.title("Yangi mahsulotlar topildi")
-        dlg.configure(bg=BG)
-        dlg.resizable(False, False)
+        dlg.configure(bg=CARD)
+        dlg.resizable(True, True)
         dlg.grab_set()
 
+        # Oyna o'lchami — katta
+        sw = dlg.winfo_screenwidth()
+        sh = dlg.winfo_screenheight()
+        w, h = min(560, sw - 80), min(500, sh - 100)
+        x = (sw - w) // 2
+        y = max(40, (sh - h) // 2)
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.minsize(400, 350)
+
         # Sarlavha
-        tk.Label(dlg, text=f"🆕  {len(new_products)} ta yangi mahsulot topildi",
-                 font=('Segoe UI', 11, 'bold'), fg='#3fb950', bg=BG,
-                 pady=12, padx=20).pack(fill='x')
-        tk.Frame(dlg, bg=BG3, height=1).pack(fill='x')
+        hdr = tk.Frame(dlg, bg='#4f46e5', pady=14, padx=20)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text=f"🆕  {len(new_products)} ta yangi mahsulot topildi!",
+                 font=('Segoe UI', 14, 'bold'), fg='white', bg='#4f46e5').pack()
+        tk.Label(hdr, text="Printerga hali biriktirilmagan mahsulotlar",
+                 font=('Segoe UI', 9), fg='#c7d2fe', bg='#4f46e5').pack()
 
         # Mahsulotlar ro'yxati
-        lf = tk.Frame(dlg, bg=BG, padx=16, pady=8); lf.pack(fill='both', expand=True)
-        tk.Label(lf, text="Quyidagi mahsulotlar hali birorta printerga biriktirilmagan:",
-                 font=('Segoe UI', 9), fg=FGD, bg=BG, anchor='w').pack(fill='x')
+        lf = tk.Frame(dlg, bg=CARD, padx=16, pady=10)
+        lf.pack(fill='both', expand=True)
 
-        # Scroll listbox
-        lb_frame = tk.Frame(lf, bg=BG); lb_frame.pack(fill='both', expand=True, pady=(6,0))
+        # Scroll listbox — katta
+        lb_frame = tk.Frame(lf, bg=CARD, highlightbackground=BORDER,
+                            highlightthickness=1)
+        lb_frame.pack(fill='both', expand=True)
         sb2 = tk.Scrollbar(lb_frame, orient='vertical')
         lb = tk.Listbox(lb_frame, yscrollcommand=sb2.set,
-                        bg='#0d1117', fg=FG, font=('Segoe UI', 9),
-                        relief='flat', bd=0, height=min(len(new_products), 12),
-                        selectmode='extended', activestyle='none')
+                        bg='white', fg=FG, font=('Segoe UI', 11),
+                        relief='flat', bd=6, selectmode='extended',
+                        activestyle='none')
         sb2.config(command=lb.yview)
         sb2.pack(side='right', fill='y')
         lb.pack(side='left', fill='both', expand=True)
@@ -1165,23 +1241,26 @@ class SettingsWindow:
 
         for cat, prods in sorted(by_cat.items()):
             lb.insert('end', f"  ── {cat} ──")
-            lb.itemconfig('end', foreground=ACCENT)
+            lb.itemconfig('end', foreground='#4f46e5', selectbackground='white')
             for p in prods:
-                lb.insert('end', f"    • {p['name']}  (ID: {p['id']})")
+                lb.insert('end', f"    •  {p['name']}")
 
         # Info xabar
         tk.Label(lf,
                  text="ℹ️  Printerga biriktirish uchun printer ustida ✎ Tahrirlash tugmasini bosing.",
-                 font=('Segoe UI', 8), fg='#888', bg=BG, anchor='w',
-                 wraplength=460, justify='left').pack(fill='x', pady=(8,0))
+                 font=('Segoe UI', 9), fg=FGD, bg=CARD, anchor='w',
+                 wraplength=500, justify='left').pack(fill='x', pady=(10,0))
 
         # Tugmalar
-        tk.Frame(dlg, bg=BG3, height=1).pack(fill='x', pady=(8,0))
-        bf = tk.Frame(dlg, bg=BG, padx=16, pady=10); bf.pack(fill='x')
-        self._btn(bf, "✕ Yopish", '#555', dlg.destroy, padx=20).pack(side='right')
+        tk.Frame(dlg, bg=BORDER, height=1).pack(fill='x')
+        bf = tk.Frame(dlg, bg='#f8fafc', padx=16, pady=10); bf.pack(fill='x')
+        tk.Button(bf, text="  Yopish  ", command=dlg.destroy,
+                  bg='#4f46e5', fg='white', font=('Segoe UI', 10, 'bold'),
+                  relief='flat', padx=24, pady=6, cursor='hand2',
+                  activebackground='#4338ca', activeforeground='white').pack(side='right')
 
         count_txt = f"✓ {len(new_products)} ta yangi mahsulot mavjud"
-        self._log_msg(f"🆕 {count_txt}")
+        self._logline(f"🆕 {count_txt}")
 
         # Oyna o'rtaga
         dlg.update_idletasks()
@@ -1219,7 +1298,7 @@ class SettingsWindow:
             else:
                 prod_txt = "— barcha"
             self._tree.insert('','end', iid=p['id'],
-                               values=(p.get('name',''), ct, addr,
+                               values=(p.get('label',''), p.get('name',''), ct, addr,
                                        f"{p.get('paper_width',80)}mm", prod_txt))
 
     def _on_tree_select(self, event=None):
@@ -1234,12 +1313,12 @@ class SettingsWindow:
         pname = p.get('name', '')
         if not pids:
             self._prod_detail.config(
-                text=f"🖨  {pname}:  barcha mahsulotlar (filter yo'q)", fg='#888')
+                text=f"🖨  {pname}:  barcha mahsulotlar (filter yo'q)", fg=FGD)
             return
         names = [pnames.get(str(pid), pnames.get(pid, f'#{pid}')) for pid in pids]
         self._prod_detail.config(
             text=f"🖨  {pname}  →  " + "  |  ".join(names),
-            fg=ACCENT)
+            fg='#4f46e5')
 
     def _sel(self):
         s = self._tree.selection()
@@ -1258,7 +1337,7 @@ class SettingsWindow:
         self.win.wait_window(d)
         if d.result:
             self._printers.append(d.result)
-            save_printers(self._printers)
+            save_printers(self._printers, self.agent.business_id)
             self.agent.printers = self._printers
             self._refresh_tbl()
             self._logline(f"[+ {d.result['name']}]", 'ok')
@@ -1274,7 +1353,7 @@ class SettingsWindow:
             d.result['id'] = p['id']
             i = next(i for i,x in enumerate(self._printers) if x['id']==p['id'])
             self._printers[i] = d.result
-            save_printers(self._printers)
+            save_printers(self._printers, self.agent.business_id)
             self.agent.printers = self._printers
             self._refresh_tbl()
             # Backend bilan sync
@@ -1298,7 +1377,7 @@ class SettingsWindow:
         if not p: return
         if messagebox.askyesno("","O'chirishni tasdiqlang?", parent=self.win):
             self._printers = [x for x in self._printers if x['id']!=p['id']]
-            save_printers(self._printers); self.agent.printers = self._printers
+            save_printers(self._printers, self.agent.business_id); self.agent.printers = self._printers
             self._refresh_tbl()
 
     def _tst(self):
@@ -1325,14 +1404,16 @@ class SettingsWindow:
     def _update_ui(self):
         a = self.agent
         if a.running:
-            self._dot.config(fg=ACCENT)
-            self._stlbl.config(text=f"Ishlayapti — {len(self._printers)} printer")
-            self._togbtn.config(text="⏹  TO'XTAT", bg=RED)
+            self._dot.config(fg='#16a34a')
+            self._stlbl.config(text=f"Ishlayapti — {len(self._printers)} printer", fg='#16a34a')
+            self._togbtn.config(text="⏹  TO'XTAT", bg=RED,
+                                activebackground='#b91c1c')
         else:
             self._dot.config(fg=RED)
-            self._stlbl.config(text="To'xtatilgan")
-            self._togbtn.config(text="▶  ISHGA TUSHIR", bg=GREEN)
-        self._stats.config(text=f"✓{a.printed}  ✗{a.errors}")
+            self._stlbl.config(text="To'xtatilgan", fg=FG)
+            self._togbtn.config(text="▶  ISHGA TUSHIR", bg=GREEN,
+                                activebackground='#15803d')
+        self._stats.config(text=f"✓ {a.printed}   ✗ {a.errors}")
 
     # ── LOG ──────────────────────────────────────────────────
     def _on_log(self, line, lvl='info'):

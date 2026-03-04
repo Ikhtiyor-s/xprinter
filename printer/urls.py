@@ -65,6 +65,22 @@ urlpatterns = [
     path('agent-credential/<int:pk>/delete/', views.AgentCredentialDeleteView.as_view(), name='agent-cred-delete'),
 
     # ============================================================
+    # ORDER SERVICE CRUD (Tashqi servislar)
+    # ============================================================
+    path('order-service/list/', views.OrderServiceListView.as_view(), name='order-service-list'),
+    path('order-service/create/', views.OrderServiceCreateView.as_view(), name='order-service-create'),
+    path('order-service/<int:pk>/update/', views.OrderServiceUpdateView.as_view(), name='order-service-update'),
+    path('order-service/<int:pk>/delete/', views.OrderServiceDeleteView.as_view(), name='order-service-delete'),
+
+    # ============================================================
+    # INTEGRATION TEMPLATE (Integratsiya shablonlari)
+    # ============================================================
+    path('integration-template/list/', views.IntegrationTemplateListView.as_view(), name='integration-template-list'),
+    path('integration-template/create/', views.IntegrationTemplateCreateView.as_view(), name='integration-template-create'),
+    path('integration-template/<int:pk>/update/', views.IntegrationTemplateUpdateView.as_view(), name='integration-template-update'),
+    path('integration-template/<int:pk>/delete/', views.IntegrationTemplateDeleteView.as_view(), name='integration-template-delete'),
+
+    # ============================================================
     # NONBOR POLLING (avtomatik buyurtma olish)
     # ============================================================
     path('nonbor/poll/<int:business_id>/', views.NonborPollView.as_view(), name='nonbor-poll'),
