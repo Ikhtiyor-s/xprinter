@@ -987,8 +987,7 @@ class SettingsWindow:
 
         # User info row (chiqish)
         uf = tk.Frame(f, bg=BG, padx=16, pady=6); uf.pack(fill='x')
-        self._btn(uf, "🔗 Server test", PURPLE, self._test_conn).pack(side='left')
-        self._btn(uf, "🔄 Mahsulotlarni yangilash", '#1a6b3a', self._check_new_products).pack(side='left', padx=(8,0))
+        self._btn(uf, "🔄 Mahsulotlarni yangilash", '#1a6b3a', self._check_new_products).pack(side='left')
         self._btn(uf, "⟳ Hisobdan chiqish", '#444', self._do_logout).pack(side='right')
 
         # Printers section
