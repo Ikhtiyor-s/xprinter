@@ -114,9 +114,9 @@ def load_saved_logins():
         except: pass
     return []
 
-def save_login_to_history(username, password):
+def save_login_to_history(username):
     logins = [l for l in load_saved_logins() if l.get('username') != username]
-    logins.insert(0, {'username': username, 'password': password})
+    logins.insert(0, {'username': username})
     with open(SAVED_LOGINS_FILE, 'w', encoding='utf-8') as f:
         json.dump(logins[:10], f, ensure_ascii=False)
 
@@ -308,6 +308,12 @@ def print_net(ip, port, data):
 
 def print_usb(name, data):
     if not HAS_WIN32: return False, "pywin32 kerak"
+    if not name or not name.strip():
+        return False, "Windows printer nomi kiritilmagan"
+    # Tekshirish — printer mavjudmi
+    known = local_printers()
+    if known and name not in known:
+        return False, f"'{name}' nomli printer topilmadi.\nMavjud printerlar: {', '.join(known)}"
     try:
         h = win32print.OpenPrinter(name)
         try:
@@ -318,7 +324,7 @@ def print_usb(name, data):
             win32print.EndDocPrinter(h)
             return True, None
         finally: win32print.ClosePrinter(h)
-    except Exception as e: return False, str(e)
+    except Exception as e: return False, f"Printer xato: {e}"
 
 def do_print(p_cfg, content):
     conn  = p_cfg.get('connection','auto')
@@ -327,9 +333,28 @@ def do_print(p_cfg, content):
     usb   = p_cfg.get('usb','')
     width = int(p_cfg.get('paper_width', 80))
     data  = escpos(content, width)
-    if conn == 'network' and ip: return print_net(ip, port, data)
-    if usb: return (print_usb(usb, data) if IS_WIN else (False, "Linux USB"))
-    return False, "Printer sozlanmagan"
+    # Tarmoq yoki WiFi — TCP/IP orqali
+    if conn in ('network', 'wifi'):
+        if not ip: return False, "IP manzil kiritilmagan"
+        return print_net(ip, port, data)
+    # USB — Windows printer driver orqali
+    if conn == 'usb':
+        if not usb: return False, "USB printer tanlanmagan"
+        return print_usb(usb, data) if IS_WIN else (False, "USB faqat Windows da ishlaydi")
+    # Cloud/Auto — avval USB, keyin default printer
+    if conn == 'auto':
+        if usb:
+            return print_usb(usb, data) if IS_WIN else (False, "USB faqat Windows da ishlaydi")
+        # Default Windows printer ga yuborish
+        if IS_WIN and HAS_WIN32:
+            try:
+                dp = win32print.GetDefaultPrinter()
+                if dp:
+                    return print_usb(dp, data)
+            except Exception:
+                pass
+        return False, "Cloud rejimda chop etish uchun default printer topilmadi"
+    return False, "Noto'g'ri ulanish turi"
 
 # ── AGENT CORE ───────────────────────────────────────────────
 class Agent:
@@ -526,7 +551,7 @@ class PrinterDlg(tk.Toplevel):
         top = tk.Frame(self, bg='#ffffff')
         top.pack(side='top', fill='x')
 
-        # Detected printers (collapsible-style, max 4 ta ko'rinadi)
+        # Topilgan printerlar (har doim ko'rinadi)
         dp = tk.Frame(top, bg='#eef2ff', padx=12, pady=6)
         dp.pack(fill='x')
         dh = tk.Frame(dp, bg='#eef2ff'); dh.pack(fill='x')
@@ -535,39 +560,47 @@ class PrinterDlg(tk.Toplevel):
         tk.Button(dh, text="🔄", command=self._refresh_detected,
                   bg='#e0e7ff', fg='#4f46e5', relief='flat',
                   font=('Segoe UI',8), cursor='hand2', padx=6, pady=1).pack(side='right')
-        # Max 4 ta printer ko'rinsin (scroll emas, kichik ekran uchun)
         self._det_frame = tk.Frame(dp, bg='#eef2ff')
         self._det_frame.pack(fill='x', pady=(4,0))
         self._populate_detected()
 
-        # Yorliq (display name) — masalan: "Oshxona", "Osh", "Somsa"
+        # Printer nomi (display name) — masalan: "Oshxona", "Osh", "Somsa"
         rl = tk.Frame(top, bg='#ffffff'); rl.pack(fill='x', **fp)
-        self._lbl(rl, "Yorliq *").pack(side='left')
+        self._lbl(rl, "Printer nomi *").pack(side='left')
         self._label = self._entry(rl, d.get('label', ''))
         self._label.pack(side='left', fill='x', expand=True)
-        tk.Label(top, text="  Masalan: Oshxona, Osh, Somsa, Bar",
+        tk.Label(top, text="  Masalan: Oshxona printer, Bar printer, Ichimlik",
                  font=('Segoe UI',8), fg='#4f46e5', bg='#ffffff').pack(anchor='w', padx=16)
 
-        # Printer nomi
+        # Server nomi
         r = tk.Frame(top, bg='#ffffff'); r.pack(fill='x', **fp)
-        self._lbl(r, "Printer nomi *").pack(side='left')
+        self._lbl(r, "Server nomi *").pack(side='left')
         self._name = self._entry(r, d.get('name', ''))
         self._name.pack(side='left', fill='x', expand=True)
-        tk.Label(top, text="  Server printer nomiga aynan mos bo'lsin",
+        tk.Label(top, text="  Nonbor paneldagi printer nomiga aynan mos bo'lsin",
                  font=('Segoe UI',8), fg='#94a3b8', bg='#ffffff').pack(anchor='w', padx=16)
 
         # Ulanish turi
         r2 = tk.Frame(top, bg='#ffffff'); r2.pack(fill='x', **fp)
         self._lbl(r2, "Ulanish turi *").pack(side='left')
         self._conn = tk.StringVar(value=d.get('connection', 'network'))
-        for v, t in [('network','🌐 Tarmoq'), ('usb','🖨 USB'), ('auto','☁ Auto')]:
+        for v, t in [('network','🌐 Tarmoq (LAN)'), ('wifi','📶 WiFi'), ('usb','🖨 USB'), ('auto','☁ Cloud')]:
             tk.Radiobutton(r2, text=t, variable=self._conn, value=v,
                            bg='#ffffff', fg='#1e293b', selectcolor='#eef2ff',
                            activebackground='#ffffff', font=('Segoe UI',9),
-                           command=self._sync).pack(side='left', padx=6)
+                           command=self._sync).pack(side='left', padx=4)
 
-        # IP / USB (conditional)
-        self._nf = tk.Frame(top, bg='#ffffff')
+        # Ulanish tushuntirmasi
+        self._conn_hint = tk.Label(top, text="", font=('Segoe UI',8),
+                                    fg='#4f46e5', bg='#ffffff', anchor='w', wraplength=440)
+        self._conn_hint.pack(fill='x', padx=16)
+
+        # ── Ulanish sozlamalari konteyneri (pack tartibini saqlash) ──
+        self._conn_box = tk.Frame(top, bg='#ffffff')
+        self._conn_box.pack(fill='x')
+
+        # ── Tarmoq/WiFi maydonlari (IP + Port) ──
+        self._nf = tk.Frame(self._conn_box, bg='#ffffff')
         self._nf.pack(fill='x', padx=16)
         rn = tk.Frame(self._nf, bg='#ffffff'); rn.pack(fill='x', pady=2)
         self._lbl(rn, "IP manzil *").pack(side='left')
@@ -577,14 +610,28 @@ class PrinterDlg(tk.Toplevel):
         self._port = self._entry(rn, str(d.get('port', 9100)))
         self._port.config(width=7); self._port.pack(side='left')
 
-        self._uf = tk.Frame(top, bg='#ffffff')
+        # ── USB maydonlari (Windows printer tanlash) ──
+        self._uf = tk.Frame(self._conn_box, bg='#ffffff')
         self._uf.pack(fill='x', padx=16)
         ru = tk.Frame(self._uf, bg='#ffffff'); ru.pack(fill='x', pady=2)
-        self._lbl(ru, "Printer nomi *").pack(side='left')
+        self._lbl(ru, "Windows printer *").pack(side='left')
         self._usb = tk.StringVar(value=d.get('usb', ''))
-        self._cb  = ttk.Combobox(ru, textvariable=self._usb, font=('Segoe UI',10))
+        self._cb  = ttk.Combobox(ru, textvariable=self._usb, font=('Segoe UI',10),
+                                  state='readonly')
         self._cb['values'] = self._lps
         self._cb.pack(side='left', fill='x', expand=True)
+        # USB da eskidan noto'g'ri nom bo'lsa, ro'yxatdan qayta tanlash kerak
+        if d.get('usb','') and d.get('usb','') not in self._lps:
+            self._usb.set('')
+
+        # ── Cloud tushuntirish paneli ──
+        self._cf = tk.Frame(self._conn_box, bg='#eef2ff', padx=12, pady=8)
+        self._cf.pack(fill='x', padx=16, pady=(2,0))
+        tk.Label(self._cf, text="☁  Cloud rejimda printer serverdan boshqariladi.\n"
+                 "Agent buyurtmani serverdan oladi va shu kompyuterga\n"
+                 "ulangan printerga chop etadi. IP/USB kiritish shart emas.",
+                 font=('Segoe UI',8), fg='#4f46e5', bg='#eef2ff',
+                 anchor='w', justify='left').pack(anchor='w')
 
         # Qog'oz kengligi
         rw = tk.Frame(top, bg='#ffffff'); rw.pack(fill='x', **fp)
@@ -836,29 +883,40 @@ class PrinterDlg(tk.Toplevel):
 
     def _sync(self):
         conn = self._conn.get()
-        state_n = 'normal' if conn=='network' else 'disabled'
-        state_u = 'normal' if conn=='usb'     else 'disabled'
-        for w in self._nf.winfo_children():
-            for c in w.winfo_children():
-                try: c.config(state=state_n)
-                except: pass
-        for w in self._uf.winfo_children():
-            for c in w.winfo_children():
-                try: c.config(state=state_u)
-                except: pass
+        hints = {
+            'network': '📡 Kabel orqali (Ethernet). Printer IP va portini kiriting.',
+            'wifi':    '📶 WiFi orqali. Printer IP va portini kiriting (tarmoqdagidek).',
+            'usb':     '🖨 USB kabel orqali ulangan. Windows printer nomini tanlang.',
+            'auto':    '☁ Server orqali masofadan. Default printerga chop etiladi.',
+        }
+        self._conn_hint.config(text=hints.get(conn, ''))
+        show_net = conn in ('network', 'wifi')
+        show_usb = conn == 'usb'
+        show_cloud = conn == 'auto'
+        # Avval hammasini yashirish
+        self._nf.pack_forget()
+        self._uf.pack_forget()
+        self._cf.pack_forget()
+        # Kerakli maydonlarni ko'rsatish (tartib saqlanadi)
+        if show_net:
+            self._nf.pack(fill='x', padx=16)
+        elif show_usb:
+            self._uf.pack(fill='x', padx=16)
+        elif show_cloud:
+            self._cf.pack(fill='x', padx=16, pady=(2,0))
 
     def _ok(self):
         label = self._label.get().strip()
         name = self._name.get().strip()
         if not label:
-            messagebox.showwarning("","Yorliq kiriting! (masalan: Oshxona, Osh, Somsa)",parent=self); return
+            messagebox.showwarning("","Printer nomini kiriting! (masalan: Oshxona printer)",parent=self); return
         if not name:
-            messagebox.showwarning("","Printer nomini kiriting!",parent=self); return
+            messagebox.showwarning("","Server nomini kiriting! (Nonbor paneldagi nom)",parent=self); return
         conn = self._conn.get()
-        if conn=='network' and not self._ip.get().strip():
-            messagebox.showwarning("","IP kiriting!",parent=self); return
+        if conn in ('network','wifi') and not self._ip.get().strip():
+            messagebox.showwarning("","IP manzilni kiriting!",parent=self); return
         if conn=='usb' and not self._usb.get().strip():
-            messagebox.showwarning("","Printer tanlang!",parent=self); return
+            messagebox.showwarning("","Windows printerni tanlang!",parent=self); return
 
         # Tanlangan mahsulotlar
         product_ids = [pid for pid, var in self._checkvars.items() if var.get()]
@@ -1016,13 +1074,9 @@ class SettingsWindow:
         self._l_user.focus()
 
     def _on_login_select(self, event=None):
-        """Saqlangan logindan tanlaganda parolni avtomatik to'ldirish"""
-        selected = self._l_user.get()
-        for entry in self._saved_logins:
-            if entry['username'] == selected:
-                self._l_pass.delete(0, 'end')
-                self._l_pass.insert(0, entry['password'])
-                break
+        """Saqlangan logindan tanlaganda faqat username to'ldiriladi"""
+        self._l_pass.delete(0, 'end')
+        self._l_pass.focus()
 
     def _toggle_pass(self):
         self._pass_visible = not self._pass_visible
@@ -1050,7 +1104,7 @@ class SettingsWindow:
         self.agent.business_id   = bid
         self.agent.business_name = bname
         save_config(self.agent)
-        save_login_to_history(u, p)
+        save_login_to_history(u)
         self._printers = load_printers(bid)
         self.agent.printers = self._printers
         self._show_main()
@@ -1110,7 +1164,7 @@ class SettingsWindow:
             self._btn(ab,t,clr,fn,padx=8 if len(t)<4 else 12).pack(side='left',padx=2)
 
         # Treeview
-        tf = tk.Frame(pc, bg=CARD, padx=12, pady=(0,8)); tf.pack(fill='x')
+        tf = tk.Frame(pc, bg=CARD, padx=12, pady=0); tf.pack(fill='x', pady=(0,8))
         style = ttk.Style(); style.theme_use('default')
         style.configure('T.Treeview', background='white', foreground=FG,
                          fieldbackground='white', rowheight=26, font=('Segoe UI',9))
@@ -1314,6 +1368,7 @@ class SettingsWindow:
         for p in self._printers:
             conn = p.get('connection','auto')
             if conn=='network':   addr=f"{p.get('ip','')}:{p.get('port',9100)}"; ct='🌐 Tarmoq'
+            elif conn=='wifi':    addr=f"{p.get('ip','')}:{p.get('port',9100)}"; ct='📶 WiFi'
             elif conn=='usb':     addr=p.get('usb',''); ct='🖨 USB'
             else:                 addr='(serverdan)';   ct='☁ Auto'
             pids = p.get('product_ids', [])

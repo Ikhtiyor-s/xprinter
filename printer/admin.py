@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Printer, PrinterCategory, PrinterProduct, PrintJob
+from .models import Printer, PrinterCategory, PrinterProduct, PrintJob, NotificationConfig, PrinterNotification
 
 
 class PrinterCategoryInline(admin.TabularInline):
@@ -50,4 +50,17 @@ class PrintJobAdmin(admin.ModelAdmin):
     list_filter = ['status', 'business_id', 'printer']
     search_fields = ['order_id']
     readonly_fields = ['content', 'items_data', 'error_message', 'created_at', 'printed_at']
+    date_hierarchy = 'created_at'
+
+
+@admin.register(NotificationConfig)
+class NotificationConfigAdmin(admin.ModelAdmin):
+    list_display = ['business_id', 'business_name', 'telegram_enabled', 'cloud_timeout_minutes', 'is_active']
+    list_filter = ['telegram_enabled', 'is_active']
+
+
+@admin.register(PrinterNotification)
+class PrinterNotificationAdmin(admin.ModelAdmin):
+    list_display = ['id', 'business_id', 'printer_name', 'order_id', 'level', 'title', 'is_read', 'telegram_sent', 'created_at']
+    list_filter = ['level', 'is_read', 'telegram_sent']
     date_hierarchy = 'created_at'

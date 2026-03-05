@@ -8,10 +8,12 @@ class Printer(models.Model):
     CONNECTION_NETWORK = 'network'
     CONNECTION_USB = 'usb'
     CONNECTION_CLOUD = 'cloud'
+    CONNECTION_WIFI = 'wifi'
     CONNECTION_CHOICES = [
         (CONNECTION_NETWORK, 'Tarmoq (IP) - lokal'),
         (CONNECTION_USB, 'USB - lokal'),
         (CONNECTION_CLOUD, 'Cloud - masofadan (agent orqali)'),
+        (CONNECTION_WIFI, 'WiFi - simsiz tarmoq'),
     ]
 
     PAPER_58 = 58
@@ -74,7 +76,10 @@ class Printer(models.Model):
         ordering = ['business_id', 'name']
 
     def __str__(self):
-        conn = self.ip_address if self.connection_type == self.CONNECTION_NETWORK else self.usb_path
+        if self.connection_type in (self.CONNECTION_NETWORK, self.CONNECTION_WIFI):
+            conn = self.ip_address
+        else:
+            conn = self.usb_path
         return f"{self.name} ({conn})"
 
 
@@ -218,6 +223,77 @@ class AgentCredential(models.Model):
         return self.password == raw
 
 
+class NotificationConfig(models.Model):
+    """Printer xatolik bildirishnomalari sozlamalari - har bir biznes uchun"""
+
+    business_id = models.IntegerField(
+        unique=True, db_index=True,
+        help_text="Nonbor business ID"
+    )
+    business_name = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text="Biznes nomi (kesh)"
+    )
+    telegram_bot_token = models.CharField(
+        max_length=500, blank=True, default='',
+        help_text="Telegram bot token"
+    )
+    telegram_chat_id = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="Telegram chat/group ID"
+    )
+    telegram_enabled = models.BooleanField(
+        default=False,
+        help_text="Telegram xabar yuborish yoqilganmi"
+    )
+    cloud_timeout_minutes = models.IntegerField(
+        default=5,
+        help_text="Cloud printer javob berish vaqti (daqiqa)"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'notification_config'
+
+    def __str__(self):
+        return f"Bildirishnoma #{self.business_id} - {self.business_name}"
+
+
+class PrinterNotification(models.Model):
+    """Printer xatolik bildirishnomalari - admin panelda ko'rsatish uchun"""
+
+    LEVEL_ERROR = 'error'
+    LEVEL_WARNING = 'warning'
+    LEVEL_INFO = 'info'
+    LEVEL_CHOICES = [
+        (LEVEL_ERROR, 'Xatolik'),
+        (LEVEL_WARNING, 'Ogohlantirish'),
+        (LEVEL_INFO, "Ma'lumot"),
+    ]
+
+    business_id = models.IntegerField(db_index=True)
+    business_name = models.CharField(max_length=200, blank=True, default='')
+    printer_name = models.CharField(max_length=100, blank=True, default='')
+    order_id = models.IntegerField(null=True, blank=True)
+    print_job_id = models.IntegerField(null=True, blank=True)
+    level = models.CharField(
+        max_length=10, choices=LEVEL_CHOICES, default=LEVEL_ERROR,
+    )
+    title = models.CharField(max_length=300)
+    message = models.TextField(blank=True, default='')
+    is_read = models.BooleanField(default=False, db_index=True)
+    telegram_sent = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'printer_notification'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.level}] {self.title}"
+
+
 class IntegrationTemplate(models.Model):
     """Tayyor integratsiya shablonlari - admin tomonidan yaratiladi.
     Har bir shablon bitta integratsiya turini ifodalaydi (Nonbor, iiko, R-Keeper va h.k.)"""
@@ -227,6 +303,7 @@ class IntegrationTemplate(models.Model):
     description = models.TextField(blank=True, default='', help_text="Qisqa tavsif")
     icon = models.CharField(max_length=50, default='🔗', help_text="Emoji yoki icon nomi")
     color = models.CharField(max_length=20, default='#1890ff', help_text="Kartochka rangi (hex)")
+    logo = models.ImageField(upload_to='integration_logos/', blank=True, null=True, help_text="Integratsiya logotipi")
     base_api_url = models.CharField(max_length=500, blank=True, default='', help_text="Default API URL")
     default_poll_interval = models.IntegerField(default=10, help_text="Default polling intervali (s)")
     is_active = models.BooleanField(default=True)
@@ -362,3 +439,92 @@ class PrintJob(models.Model):
     @property
     def can_retry(self):
         return self.retry_count < self.max_retries
+
+
+class ReceiptTemplate(models.Model):
+    """Chek shabloni — har bir biznes + buyurtma turi uchun bitta.
+    Masalan: Yetkazish cheki, Olib ketish cheki, Zalda cheki."""
+
+    TYPE_DELIVERY = 'delivery'
+    TYPE_PICKUP = 'pickup'
+    TYPE_DINE_IN = 'dine_in'
+    TYPE_SCHED_DEL = 'sched_del'
+    TYPE_SCHED_PICK = 'sched_pick'
+    TYPE_ADMIN = 'admin'
+    TYPE_CHOICES = [
+        (TYPE_DELIVERY, 'Yetkazib berish'),
+        (TYPE_PICKUP, 'Olib ketish'),
+        (TYPE_DINE_IN, 'Zalda'),
+        (TYPE_SCHED_DEL, 'Reja yetkazish'),
+        (TYPE_SCHED_PICK, 'Reja olib ketish'),
+        (TYPE_ADMIN, 'Admin printer'),
+    ]
+
+    FONT_NORMAL = 'normal'
+    FONT_LARGE = 'large'
+    FONT_CHOICES = [
+        (FONT_NORMAL, 'Normal'),
+        (FONT_LARGE, 'Katta'),
+    ]
+
+    business_id = models.IntegerField(
+        db_index=True,
+        help_text="Nonbor business ID"
+    )
+    business_name = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text="Biznes nomi (kesh)"
+    )
+    template_type = models.CharField(
+        max_length=10, choices=TYPE_CHOICES, default=TYPE_DELIVERY,
+        help_text="Buyurtma turi: delivery, pickup, dine_in"
+    )
+
+    # Header
+    header_text = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text="Sarlavha matni (bo'sh bo'lsa business_name ishlatiladi)"
+    )
+
+    # Ko'rsatish / yashirish
+    show_customer_info = models.BooleanField(
+        default=True,
+        help_text="Mijoz ma'lumotlari (ism, telefon, manzil)"
+    )
+    show_other_printers = models.BooleanField(
+        default=True,
+        help_text="Boshqa printerlar bo'limi"
+    )
+    show_comment = models.BooleanField(
+        default=True,
+        help_text="Mijoz izohi"
+    )
+    show_product_names = models.BooleanField(
+        default=True,
+        help_text="Mahsulot nomlari katta shriftda (oddiy printerlar uchun)"
+    )
+
+    # Footer
+    footer_text = models.CharField(
+        max_length=300, blank=True, default='Rahmat!',
+        help_text="Chek pastida chiqadigan matn"
+    )
+
+    # Shrift va qog'oz
+    font_size = models.CharField(
+        max_length=10, choices=FONT_CHOICES, default=FONT_NORMAL,
+    )
+    default_paper_width = models.IntegerField(
+        choices=[(58, '58mm'), (80, '80mm')],
+        default=80,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'receipt_template'
+        unique_together = ('business_id', 'template_type')
+
+    def __str__(self):
+        return f"Chek shablon → Biznes #{self.business_id} ({self.get_template_type_display()})"

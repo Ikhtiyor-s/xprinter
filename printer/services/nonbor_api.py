@@ -97,9 +97,10 @@ def parse_nonbor_order(order_raw, business_id):
     # Items - Nonbor da "order_item" yoki "items"
     raw_items = order_raw.get('order_item', []) or order_raw.get('items', [])
 
-    # Raw strukturani log qilamiz (birinchi marta debug uchun)
+    # Raw strukturani log qilamiz
     if raw_items:
-        logger.debug(f"Order #{order_raw.get('id')} item[0] keys: {list(raw_items[0].keys())}")
+        logger.info(f"Order #{order_raw.get('id')} item[0] keys: {list(raw_items[0].keys())}")
+        logger.info(f"Order #{order_raw.get('id')} item[0] raw: {raw_items[0]}")
 
     items = []
     for it in raw_items:
@@ -203,9 +204,17 @@ def parse_nonbor_order(order_raw, business_id):
         ''
     )
 
+    # Nonbor buyurtma raqami (order_number, number, display_number yoki id)
+    order_num = (
+        order_raw.get('order_number') or
+        order_raw.get('number') or
+        order_raw.get('display_number') or
+        order_raw.get('id', '')
+    )
+
     order_data = {
         'order_id': order_raw.get('id', 0),
-        'order_number': str(order_raw.get('id', '')),
+        'order_number': str(order_num),
         'business_name': business.get('title') or business.get('name', ''),
         'customer_name': f"{user.get('first_name', '')} {user.get('last_name', '')}".strip(),
         'customer_phone': phone,

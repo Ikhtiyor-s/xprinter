@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import Printer, PrinterCategory, PrinterProduct, PrintJob, NonborConfig
+from .models import (
+    Printer, PrinterCategory, PrinterProduct, PrintJob,
+    NonborConfig, ReceiptTemplate, NotificationConfig, PrinterNotification,
+)
 
 
 # ============================================================
@@ -18,10 +21,10 @@ class PrinterCreateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         conn = data.get('connection_type', Printer.CONNECTION_NETWORK)
-        if conn == Printer.CONNECTION_NETWORK:
+        if conn in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI):
             if not data.get('ip_address'):
                 raise serializers.ValidationError({
-                    'ip_address': "Tarmoq printer uchun IP manzil kiritish shart."
+                    'ip_address': "Tarmoq/WiFi printer uchun IP manzil kiritish shart."
                 })
         elif conn == Printer.CONNECTION_USB:
             if not data.get('usb_path'):
@@ -47,9 +50,9 @@ class PrinterUpdateSerializer(serializers.ModelSerializer):
         ip = data.get('ip_address', instance.ip_address if instance else None)
         usb = data.get('usb_path', instance.usb_path if instance else None)
 
-        if conn == Printer.CONNECTION_NETWORK and not ip:
+        if conn in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI) and not ip:
             raise serializers.ValidationError({
-                'ip_address': "Tarmoq printer uchun IP manzil kiritish shart."
+                'ip_address': "Tarmoq/WiFi printer uchun IP manzil kiritish shart."
             })
         elif conn == Printer.CONNECTION_USB and not usb:
             raise serializers.ValidationError({
@@ -81,9 +84,11 @@ class PrinterListSerializer(serializers.ModelSerializer):
         return obj.products.count()
 
     def get_connection_info(self, obj):
-        if obj.connection_type == Printer.CONNECTION_NETWORK:
-            return f"{obj.ip_address}:{obj.port}"
-        return obj.usb_path or ''
+        if obj.connection_type in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI):
+            return f"{obj.ip_address}:{obj.port}" if obj.ip_address else ''
+        if obj.connection_type == Printer.CONNECTION_USB:
+            return obj.usb_path or ''
+        return ''
 
 
 class PrinterDetailSerializer(serializers.ModelSerializer):
@@ -323,4 +328,49 @@ class NonborConfigUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'business_name', 'api_url', 'api_secret',
             'seller_id', 'poll_enabled', 'poll_interval', 'is_active',
+        ]
+
+
+# ============================================================
+# RECEIPT TEMPLATE SERIALIZERS
+# ============================================================
+
+class ReceiptTemplateSerializer(serializers.ModelSerializer):
+    template_type_display = serializers.CharField(
+        source='get_template_type_display', read_only=True
+    )
+
+    class Meta:
+        model = ReceiptTemplate
+        fields = [
+            'id', 'business_id', 'business_name', 'template_type', 'template_type_display',
+            'header_text', 'show_customer_info', 'show_other_printers',
+            'show_comment', 'show_product_names',
+            'footer_text', 'font_size', 'default_paper_width',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# ============================================================
+# NOTIFICATION SERIALIZERS
+# ============================================================
+
+class NotificationConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationConfig
+        fields = [
+            'id', 'business_id', 'business_name',
+            'telegram_bot_token', 'telegram_chat_id', 'telegram_enabled',
+            'cloud_timeout_minutes', 'is_active', 'created_at',
+        ]
+
+class PrinterNotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrinterNotification
+        fields = [
+            'id', 'business_id', 'business_name', 'printer_name',
+            'order_id', 'print_job_id', 'level',
+            'title', 'message', 'is_read', 'telegram_sent',
+            'created_at',
         ]

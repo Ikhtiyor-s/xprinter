@@ -5,7 +5,11 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-from .models import Printer, PrinterCategory, PrinterProduct, PrintJob, NonborConfig, AgentCredential, IntegrationTemplate, OrderService
+from .models import (
+    Printer, PrinterCategory, PrinterProduct, PrintJob,
+    NonborConfig, AgentCredential, IntegrationTemplate, OrderService,
+    ReceiptTemplate, NotificationConfig, PrinterNotification,
+)
 from .serializers import (
     PrinterCreateSerializer,
     PrinterUpdateSerializer,
@@ -23,6 +27,9 @@ from .serializers import (
     NonborConfigSerializer,
     NonborConfigCreateSerializer,
     NonborConfigUpdateSerializer,
+    ReceiptTemplateSerializer,
+    NotificationConfigSerializer,
+    PrinterNotificationSerializer,
 )
 from .services.print_service import (
     print_order,
@@ -602,6 +609,11 @@ class AgentCompleteView(APIView):
             job.mark_completed()
         elif job_status == 'failed':
             job.mark_failed(error_message)
+            try:
+                from .services.notification_service import notify_print_failure
+                notify_print_failure(job, error_message)
+            except Exception as e:
+                logger.error(f"Agent bildirishnoma xatolik: {e}")
         else:
             return Response({
                 'success': False,
@@ -955,7 +967,7 @@ class AgentAuthView(APIView):
 
 # Mahsulotlar keshi: {business_id: (timestamp, products_list)}
 _MENU_CACHE = {}
-_MENU_CACHE_TTL = 300  # 5 daqiqa
+_MENU_CACHE_TTL = 3600  # 1 soat
 
 
 class NonborMenuView(APIView):
@@ -1092,8 +1104,19 @@ class NonborMenuView(APIView):
                 'category_name': cat_name,
             })
 
+        # Nonbor API javob bermasa va keshda bor bo'lsa — keshdan qaytar
+        if not products and cached:
+            _, cached_products = cached
+            if cached_products:
+                return Response({
+                    'success': True,
+                    'count': len(cached_products),
+                    'products': cached_products,
+                })
+
         # Keshga saqlash
-        _MENU_CACHE[business_id] = (_time.time(), products)
+        if products:
+            _MENU_CACHE[business_id] = (_time.time(), products)
 
         return Response({
             'success': True,
@@ -1405,7 +1428,12 @@ class OrderServiceDeleteView(APIView):
 # INTEGRATION TEMPLATE CRUD (Integratsiya shablonlari)
 # ============================================================
 
-def _template_dict(t):
+def _template_dict(t, request=None):
+    logo_url = None
+    if t.logo:
+        logo_url = t.logo.url
+        if request:
+            logo_url = request.build_absolute_uri(t.logo.url)
     return {
         'id': t.id,
         'name': t.name,
@@ -1413,6 +1441,7 @@ def _template_dict(t):
         'description': t.description,
         'icon': t.icon,
         'color': t.color,
+        'logo': logo_url,
         'base_api_url': t.base_api_url,
         'default_poll_interval': t.default_poll_interval,
         'is_active': t.is_active,
@@ -1429,7 +1458,7 @@ class IntegrationTemplateListView(APIView):
         qs = IntegrationTemplate.objects.all()
         if request.GET.get('active_only') == 'true':
             qs = qs.filter(is_active=True)
-        return Response({'success': True, 'result': [_template_dict(t) for t in qs]})
+        return Response({'success': True, 'result': [_template_dict(t, request) for t in qs]})
 
 
 class IntegrationTemplateCreateView(APIView):
@@ -1451,6 +1480,10 @@ class IntegrationTemplateCreateView(APIView):
                 'error': f'"{slug}" slug allaqachon mavjud',
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        is_active = request.data.get('is_active', True)
+        if isinstance(is_active, str):
+            is_active = is_active.lower() in ('true', '1', 'yes')
+
         t = IntegrationTemplate.objects.create(
             name=name,
             slug=slug,
@@ -1458,11 +1491,14 @@ class IntegrationTemplateCreateView(APIView):
             icon=request.data.get('icon', '🔗'),
             color=request.data.get('color', '#1890ff'),
             base_api_url=request.data.get('base_api_url', ''),
-            default_poll_interval=request.data.get('default_poll_interval', 10),
-            is_active=request.data.get('is_active', True),
-            sort_order=request.data.get('sort_order', 0),
+            default_poll_interval=int(request.data.get('default_poll_interval', 10)),
+            is_active=is_active,
+            sort_order=int(request.data.get('sort_order', 0)),
         )
-        return Response({'success': True, 'result': _template_dict(t)}, status=status.HTTP_201_CREATED)
+        if 'logo' in request.FILES:
+            t.logo = request.FILES['logo']
+            t.save()
+        return Response({'success': True, 'result': _template_dict(t, request)}, status=status.HTTP_201_CREATED)
 
 
 class IntegrationTemplateUpdateView(APIView):
@@ -1474,12 +1510,20 @@ class IntegrationTemplateUpdateView(APIView):
         except IntegrationTemplate.DoesNotExist:
             return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
 
-        for field in ('name', 'slug', 'description', 'icon', 'color',
-                      'base_api_url', 'default_poll_interval', 'is_active', 'sort_order'):
+        for field in ('name', 'slug', 'description', 'icon', 'color', 'base_api_url'):
             if field in request.data:
                 setattr(t, field, request.data[field])
+        if 'default_poll_interval' in request.data:
+            t.default_poll_interval = int(request.data['default_poll_interval'])
+        if 'sort_order' in request.data:
+            t.sort_order = int(request.data['sort_order'])
+        if 'is_active' in request.data:
+            val = request.data['is_active']
+            t.is_active = val if isinstance(val, bool) else str(val).lower() in ('true', '1', 'yes')
+        if 'logo' in request.FILES:
+            t.logo = request.FILES['logo']
         t.save()
-        return Response({'success': True, 'result': _template_dict(t)})
+        return Response({'success': True, 'result': _template_dict(t, request)})
 
     patch = put
 
@@ -1494,3 +1538,221 @@ class IntegrationTemplateDeleteView(APIView):
             return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
         t.delete()
         return Response({'success': True})
+
+
+# ============================================================
+# RECEIPT TEMPLATE CRUD (Chek shablonlari)
+# ============================================================
+
+class ReceiptTemplateListView(APIView):
+    """GET /api/v2/receipt-template/list/?business_id="""
+
+    def get(self, request):
+        qs = ReceiptTemplate.objects.all().order_by('business_id')
+        business_id = request.GET.get('business_id')
+        if business_id:
+            qs = qs.filter(business_id=business_id)
+        return Response({
+            'success': True,
+            'result': ReceiptTemplateSerializer(qs, many=True).data,
+        })
+
+
+class ReceiptTemplateDetailView(APIView):
+    """GET /api/v2/receipt-template/<business_id>/detail/"""
+
+    def get(self, request, business_id):
+        try:
+            tpl = ReceiptTemplate.objects.get(business_id=business_id)
+        except ReceiptTemplate.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Shablon topilmadi',
+            }, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'success': True,
+            'result': ReceiptTemplateSerializer(tpl).data,
+        })
+
+
+class ReceiptTemplateSaveView(APIView):
+    """POST /api/v2/receipt-template/save/
+    Upsert: (business_id + template_type) bo'yicha mavjud bo'lsa yangilaydi, yo'q bo'lsa yaratadi"""
+
+    def post(self, request):
+        business_id = request.data.get('business_id')
+        template_type = request.data.get('template_type', 'delivery')
+        if not business_id:
+            return Response({
+                'success': False,
+                'error': 'business_id majburiy',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        tpl, created = ReceiptTemplate.objects.get_or_create(
+            business_id=business_id,
+            template_type=template_type,
+            defaults={'business_name': request.data.get('business_name', '')}
+        )
+
+        fields = [
+            'business_name', 'header_text',
+            'show_customer_info', 'show_other_printers',
+            'show_comment', 'show_product_names',
+            'footer_text', 'font_size', 'default_paper_width',
+        ]
+        for field in fields:
+            if field in request.data:
+                setattr(tpl, field, request.data[field])
+        tpl.save()
+
+        return Response({
+            'success': True,
+            'result': ReceiptTemplateSerializer(tpl).data,
+            'created': created,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
+class ReceiptTemplateDeleteView(APIView):
+    """DELETE /api/v2/receipt-template/<business_id>/delete/?template_type=delivery"""
+
+    def delete(self, request, business_id):
+        template_type = request.GET.get('template_type', '')
+        qs = ReceiptTemplate.objects.filter(business_id=business_id)
+        if template_type:
+            qs = qs.filter(template_type=template_type)
+        count = qs.count()
+        if count == 0:
+            return Response({
+                'success': False,
+                'error': 'Shablon topilmadi',
+            }, status=status.HTTP_404_NOT_FOUND)
+        qs.delete()
+        return Response({'success': True, 'deleted': count})
+
+
+# ============================================================
+# NOTIFICATION ENDPOINTS
+# ============================================================
+
+class NotificationListView(APIView):
+    """GET /api/v2/notification/list/?business_id=X&is_read=false"""
+
+    def get(self, request):
+        qs = PrinterNotification.objects.all()
+        biz = request.query_params.get('business_id')
+        if biz:
+            qs = qs.filter(business_id=biz)
+        is_read = request.query_params.get('is_read')
+        if is_read is not None:
+            qs = qs.filter(is_read=is_read.lower() == 'true')
+        qs = qs[:50]
+        return Response({
+            'success': True,
+            'result': PrinterNotificationSerializer(qs, many=True).data,
+        })
+
+
+class NotificationUnreadCountView(APIView):
+    """GET /api/v2/notification/unread-count/?business_id=X"""
+
+    def get(self, request):
+        qs = PrinterNotification.objects.filter(is_read=False)
+        biz = request.query_params.get('business_id')
+        if biz:
+            qs = qs.filter(business_id=biz)
+        return Response({
+            'success': True,
+            'count': qs.count(),
+        })
+
+
+class NotificationMarkReadView(APIView):
+    """POST /api/v2/notification/mark-read/
+    Body: { ids: [1,2,3] }  yoki  { all: true, business_id: X }"""
+
+    def post(self, request):
+        ids = request.data.get('ids', [])
+        mark_all = request.data.get('all', False)
+        biz = request.data.get('business_id')
+
+        if mark_all:
+            qs = PrinterNotification.objects.filter(is_read=False)
+            if biz:
+                qs = qs.filter(business_id=biz)
+            count = qs.update(is_read=True)
+        elif ids:
+            count = PrinterNotification.objects.filter(
+                id__in=ids, is_read=False
+            ).update(is_read=True)
+        else:
+            return Response({
+                'success': False,
+                'error': 'ids yoki all kerak',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({'success': True, 'marked': count})
+
+
+class NotificationConfigSaveView(APIView):
+    """POST /api/v2/notification-config/save/ — upsert"""
+
+    def post(self, request):
+        biz_id = request.data.get('business_id')
+        if not biz_id:
+            return Response({
+                'success': False,
+                'error': 'business_id kerak',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        obj, created = NotificationConfig.objects.update_or_create(
+            business_id=biz_id,
+            defaults={
+                'business_name': request.data.get('business_name', ''),
+                'telegram_bot_token': request.data.get('telegram_bot_token', ''),
+                'telegram_chat_id': request.data.get('telegram_chat_id', ''),
+                'telegram_enabled': request.data.get('telegram_enabled', False),
+                'cloud_timeout_minutes': request.data.get('cloud_timeout_minutes', 5),
+            }
+        )
+        return Response({
+            'success': True,
+            'created': created,
+            'result': NotificationConfigSerializer(obj).data,
+        })
+
+
+class NotificationConfigDetailView(APIView):
+    """GET /api/v2/notification-config/{business_id}/detail/"""
+
+    def get(self, request, business_id):
+        try:
+            obj = NotificationConfig.objects.get(business_id=business_id)
+        except NotificationConfig.DoesNotExist:
+            return Response({'success': True, 'result': None})
+        return Response({
+            'success': True,
+            'result': NotificationConfigSerializer(obj).data,
+        })
+
+
+class NotificationTestTelegramView(APIView):
+    """POST /api/v2/notification-config/test-telegram/"""
+
+    def post(self, request):
+        bot_token = request.data.get('telegram_bot_token', '')
+        chat_id = request.data.get('telegram_chat_id', '')
+
+        if not bot_token or not chat_id:
+            return Response({
+                'success': False,
+                'error': 'bot_token va chat_id kerak',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        from .services.notification_service import send_telegram_message
+        text = "\u2705 Test xabar - Nonbor Printer bildirishnomalar ishlayapti!"
+        sent = send_telegram_message(bot_token, chat_id, text)
+
+        return Response({
+            'success': sent,
+            'message': 'Xabar yuborildi' if sent else "Xabar yuborib bo'lmadi",
+        })

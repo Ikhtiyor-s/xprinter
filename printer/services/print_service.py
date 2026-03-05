@@ -7,7 +7,7 @@ from collections import defaultdict
 
 from django.utils import timezone
 
-from ..models import Printer, PrinterCategory, PrinterProduct, PrintJob
+from ..models import Printer, PrinterCategory, PrinterProduct, PrintJob, ReceiptTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,52 @@ class ReceiptBuilder:
 # RECEIPT FORMATLASH
 # ============================================================
 
-def build_kitchen_receipt(printer, order_data, items, other_printer_items=None):
+# Buyurtma turini ReceiptTemplate.template_type ga moslashtirish
+_ORDER_TYPE_MAP = {
+    'DELIVERY': 'delivery',
+    'YETKAZIB_BERISH': 'delivery',
+    'YETKAZISH': 'delivery',
+    'PICKUP': 'pickup',
+    'OLIB_KETISH': 'pickup',
+    'OLIB KETISH': 'pickup',
+    'TAKEAWAY': 'pickup',
+    'DINE_IN': 'dine_in',
+    'ZALDA': 'dine_in',
+    'ICHIDA': 'dine_in',
+}
+
+
+def _get_receipt_template(business_id, order_data, is_admin=False):
+    """Buyurtma turiga qarab chek shablonini olish.
+    Admin printer uchun avval 'admin' turini qidiradi."""
+    # Admin printer uchun avval admin shablonni qidirish
+    if is_admin:
+        try:
+            return ReceiptTemplate.objects.get(business_id=business_id, template_type='admin')
+        except ReceiptTemplate.DoesNotExist:
+            pass  # admin shabloni yo'q — oddiy turga fallback
+
+    order_type = (order_data.get('order_type', '') or order_data.get('delivery_method', '')).strip().upper()
+    scheduled = order_data.get('scheduled_time', '').strip()
+
+    base_type = _ORDER_TYPE_MAP.get(order_type, 'delivery')
+
+    # Reja buyurtma bo'lsa — avval sched_ versiyasini qidirish
+    if scheduled:
+        sched_type = 'sched_del' if base_type == 'delivery' else 'sched_pick'
+        try:
+            return ReceiptTemplate.objects.get(business_id=business_id, template_type=sched_type)
+        except ReceiptTemplate.DoesNotExist:
+            pass  # sched_ topilmasa oddiy turga fallback
+
+    # Oddiy tur bo'yicha qidirish
+    try:
+        return ReceiptTemplate.objects.get(business_id=business_id, template_type=base_type)
+    except ReceiptTemplate.DoesNotExist:
+        return None
+
+
+def build_kitchen_receipt(printer, order_data, items, other_printer_items=None, template=None):
     """Oshxona printer uchun receipt yaratish
 
     Args:
@@ -176,6 +221,7 @@ def build_kitchen_receipt(printer, order_data, items, other_printer_items=None):
                          customer_phone, customer_address, delivery_method, payment_method}
         items: list [{name, quantity, price, category_id, category_name}]
         other_printer_items: dict {printer_name: [items]} - boshqa printerlardagi mahsulotlar
+        template: ReceiptTemplate instance (optional)
     """
     rb = ReceiptBuilder(paper_width=printer.paper_width)
     rb.init_printer()
@@ -183,10 +229,13 @@ def build_kitchen_receipt(printer, order_data, items, other_printer_items=None):
     now = datetime.now().strftime('%d.%m.%Y %H:%M')
 
     # === SARLAVHA (ixcham) ===
-    business_name = order_data.get('business_name', 'NONBOR')
+    if template and template.header_text:
+        business_name = template.header_text
+    else:
+        business_name = order_data.get('business_name', 'NONBOR')
     rb.add_text(business_name, bold=True, center=True, double=True)
     order_num = order_data.get('order_number', str(order_data.get('order_id', '')))
-    rb.add_text(f"#{order_num}  |  {now}", center=True)
+    rb.add_text(f"Nonbor #{order_num}  |  {now}", center=True)
     rb.add_line()
 
     # === STATUS (buyurtma turi) ===
@@ -216,55 +265,52 @@ def build_kitchen_receipt(printer, order_data, items, other_printer_items=None):
 
     rb.add_line()
 
-    # === SHU PRINTERNING MAHSULOTLARI ===
+    # === MAHSULOTLAR (printer nomi bilan guruhlangan) ===
     is_admin = getattr(printer, 'is_admin', False)
+    show_other = template.show_other_printers if template else True
 
-    if not is_admin:
-        # Oddiy printer - mahsulot nomlarini katta ko'rsatish
-        product_names = [item.get('name', '') for item in items]
-        rb.add_text(' | '.join(product_names), bold=True, center=True, double=True)
-        rb.add_line()
+    grand_total = 0
 
-    total = 0
-    for item in items:
-        name = item.get('name', 'Nomsiz')
-        qty = int(item.get('quantity', 1))
-        price = float(item.get('price', 0))
-        item_total = qty * price
-        total += item_total
-        rb.add_item_line(name, qty, item_total)
+    if is_admin and other_printer_items:
+        # Admin printer — faqat boshqa printerlar bo'yicha guruhlangan ro'yxat
+        for other_name, other_items in other_printer_items.items():
+            rb.add_text(f"[ {other_name} ]", bold=True, center=True)
+            for item in other_items:
+                name = item.get('name', 'Nomsiz')
+                qty = int(item.get('quantity', 1))
+                price = float(item.get('price', 0))
+                item_total = qty * price
+                grand_total += item_total
+                rb.add_item_line(name, qty, item_total)
+                for mod in item.get('modifiers', []):
+                    mod_name = mod.get('name', '')
+                    mod_qty = int(mod.get('quantity', 1))
+                    mod_price = float(mod.get('price', 0))
+                    mod_total = mod_qty * mod_price
+                    grand_total += mod_total
+                    rb.add_modifier_line(mod_name, mod_qty, mod_total)
+    else:
+        # Oddiy printer — o'z mahsulotlari printer nomi bilan
+        rb.add_text(f"[ {printer.name} ]", bold=True, center=True)
 
-        # Qo'shimcha mahsulotlar (modifiers)
-        for mod in item.get('modifiers', []):
-            mod_name = mod.get('name', '')
-            mod_qty = int(mod.get('quantity', 1))
-            mod_price = float(mod.get('price', 0))
-            mod_total = mod_qty * mod_price
-            total += mod_total
-            rb.add_modifier_line(mod_name, mod_qty, mod_total)
+        for item in items:
+            name = item.get('name', 'Nomsiz')
+            qty = int(item.get('quantity', 1))
+            price = float(item.get('price', 0))
+            item_total = qty * price
+            grand_total += item_total
+            rb.add_item_line(name, qty, item_total)
 
-    rb.add_line()
+            for mod in item.get('modifiers', []):
+                mod_name = mod.get('name', '')
+                mod_qty = int(mod.get('quantity', 1))
+                mod_price = float(mod.get('price', 0))
+                mod_total = mod_qty * mod_price
+                grand_total += mod_total
+                rb.add_modifier_line(mod_name, mod_qty, mod_total)
 
-    # Jami - chapda text, o'ngda summa
-    total_str = f"{total:,.0f}".replace(',', ' ')
-    jami_label = "JAMI:"
-    jami_value = f"{total_str} so'm"
-    jami_pad = rb.char_width - len(jami_label) - len(jami_value)
-    if jami_pad < 1:
-        jami_pad = 1
-    rb.add_text(f"{jami_label}{' ' * jami_pad}{jami_value}", bold=True)
-
-    # === BOSHQA PRINTERLARNING MAHSULOTLARI ===
-    if other_printer_items:
-        rb.add_line()
-        if is_admin:
-            # Admin printerda barcha mahsulotlar allaqachon JAMI da
-            # Faqat qaysi printerga nima ketganini ko'rsatish
-            for other_name, other_items in other_printer_items.items():
-                names = [it.get('name', '') for it in other_items]
-                rb.add_text(f"[ {other_name} ]: {', '.join(names)}", bold=True)
-        else:
-            grand_total = total
+        # Boshqa printerlarning mahsulotlari
+        if other_printer_items and show_other:
             for other_name, other_items in other_printer_items.items():
                 rb.add_text(f"[ {other_name} ]", bold=True, center=True)
                 for item in other_items:
@@ -275,39 +321,51 @@ def build_kitchen_receipt(printer, order_data, items, other_printer_items=None):
                     grand_total += item_total
                     rb.add_item_line(name, qty, item_total)
                     for mod in item.get('modifiers', []):
-                        mod_total = int(mod.get('quantity', 1)) * float(mod.get('price', 0))
+                        mod_name = mod.get('name', '')
+                        mod_qty = int(mod.get('quantity', 1))
+                        mod_price = float(mod.get('price', 0))
+                        mod_total = mod_qty * mod_price
                         grand_total += mod_total
-                        rb.add_modifier_line(mod.get('name', ''), int(mod.get('quantity', 1)), mod_total)
+                        rb.add_modifier_line(mod_name, mod_qty, mod_total)
 
-            rb.add_line()
-            grand_str = f"{grand_total:,.0f}".replace(',', ' ')
-            uj_label = "UMUMIY JAMI:"
-            uj_value = f"{grand_str} so'm"
-            uj_pad = rb.char_width - len(uj_label) - len(uj_value)
-            if uj_pad < 1:
-                uj_pad = 1
-            rb.add_text(f"{uj_label}{' ' * uj_pad}{uj_value}", bold=True)
+    # JAMI — eng oxirida
+    rb.add_line()
+    total_str = f"{grand_total:,.0f}".replace(',', ' ')
+    jami_label = "JAMI:"
+    jami_value = f"{total_str} so'm"
+    jami_pad = rb.char_width - len(jami_label) - len(jami_value)
+    if jami_pad < 1:
+        jami_pad = 1
+    rb.add_text(f"{jami_label}{' ' * jami_pad}{jami_value}", bold=True)
 
     rb.add_line()
 
     # Mijoz info
-    customer = order_data.get('customer_name', '')
-    phone = order_data.get('customer_phone', '')
-    address = order_data.get('customer_address', '')
+    show_customer = template.show_customer_info if template else True
+    if show_customer:
+        customer = order_data.get('customer_name', '')
+        phone = order_data.get('customer_phone', '')
+        address = order_data.get('customer_address', '')
 
-    if customer:
-        rb.add_text(f"Mijoz: {customer}")
-    if phone:
-        rb.add_text(f"Tel: {phone}")
-    if address:
-        rb.add_text(f"Manzil: {address}", bold=True)
+        if customer:
+            rb.add_text(f"Mijoz: {customer}")
+        if phone:
+            rb.add_text(f"Tel: {phone}")
+        if address:
+            rb.add_text(f"Manzil: {address}", bold=True)
 
     # Mijozning izohi
+    show_comment = template.show_comment if template else True
     comment = order_data.get('comment', '').strip()
-    if comment:
+    if comment and show_comment:
         rb.add_double_line()
         rb.add_text("! IZOH:", bold=True)
         rb.add_text(comment, bold=True)
+
+    # Footer matn (default: Rahmat!)
+    footer = (template.footer_text if template and template.footer_text else 'Rahmat!')
+    rb.add_line()
+    rb.add_text(footer, center=True, bold=True)
 
     rb.add_double_line()
     rb.add_empty_line()
@@ -394,7 +452,7 @@ def send_to_printer(printer: Printer, data: bytes):
         # Cloud rejim - printerga yuborilmaydi, agent o'zi olib ketadi
         # PrintJob "pending" holatda qoladi, agent poll qilib oladi
         return 'cloud', None
-    elif printer.connection_type == Printer.CONNECTION_NETWORK:
+    elif printer.connection_type in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI):
         if not printer.ip_address:
             return False, "IP manzil ko'rsatilmagan"
         return send_to_network_printer(printer.ip_address, printer.port, data)
@@ -428,6 +486,9 @@ def print_order(order_data, items, business_id):
     Returns:
         list of PrintJob instances
     """
+    # Chek shablonini yuklash (buyurtma turiga qarab)
+    template = _get_receipt_template(business_id, order_data)
+    admin_template = _get_receipt_template(business_id, order_data, is_admin=True)
     # 1. Product → Printer mapping (ENG YUQORI USTUNLIK)
     product_printer_map = {}
     product_mappings = PrinterProduct.objects.filter(
@@ -505,26 +566,29 @@ def print_order(order_data, items, business_id):
                 if key not in existing_ids:
                     printer_items[admin_p.id].append(item)
 
+    # Avval oddiy printerlarni chop etish (admin emas)
+    # Keyin admin printerlarga failed/success ma'lumotlari bilan receipt yaratish
+    printer_results = {}  # {printer_name: 'ok' | 'failed' | 'pending'}
+    admin_printer_ids = {p.id for p in admin_printers}
+
+    # 5a. Oddiy printerlar
     for printer_id, p_items in printer_items.items():
         printer = printers.get(printer_id)
-        if not printer:
+        if not printer or printer.is_admin:
             continue
 
-        # Boshqa printerlarning mahsulotlarini yig'ish (barcha cheklarda)
         other_printer_items = {}
         for other_pid, other_items in printer_items.items():
             if other_pid == printer_id:
                 continue
             other_printer = printers.get(other_pid)
-            if other_printer:
+            if other_printer and not other_printer.is_admin:
                 other_printer_items[other_printer.name] = other_items
 
-        # Receipt yaratish
         receipt = build_kitchen_receipt(
-            printer, order_data, p_items, other_printer_items
+            printer, order_data, p_items, other_printer_items, template=template
         )
 
-        # PrintJob yaratish
         job = PrintJob.objects.create(
             printer=printer,
             order_id=order_data.get('order_id', 0),
@@ -534,27 +598,97 @@ def print_order(order_data, items, business_id):
             items_data=p_items,
         )
 
-        # Printerga yuborish
         result, error = send_to_printer(printer, receipt.get_bytes())
 
         if result == 'cloud':
-            # Cloud rejim - job "pending" qoladi, agent poll qilib oladi
+            printer_results[printer.name] = 'pending'
             logger.info(
-                f"Buyurtma #{order_data.get('order_id')} → "
+                f"Buyurtma #{order_data.get('order_id')} -> "
                 f"{printer.name}: agent kutilmoqda ({len(p_items)} ta taom)"
             )
         elif result:
             job.mark_completed()
+            printer_results[printer.name] = 'ok'
             logger.info(
-                f"Buyurtma #{order_data.get('order_id')} → "
+                f"Buyurtma #{order_data.get('order_id')} -> "
                 f"{printer.name}: {len(p_items)} ta taom chop etildi"
             )
         else:
             job.mark_failed(error)
+            printer_results[printer.name] = 'failed'
             logger.error(
-                f"Buyurtma #{order_data.get('order_id')} → "
+                f"Buyurtma #{order_data.get('order_id')} -> "
                 f"{printer.name}: XATOLIK - {error}"
             )
+            try:
+                from .notification_service import notify_print_failure
+                notify_print_failure(job, error)
+            except Exception as e:
+                logger.error(f"Bildirishnoma yuborib bo'lmadi: {e}")
+
+        print_jobs.append(job)
+
+    # 5b. Admin printerlar — barcha maxsulotlar printer nomlari bilan
+    for printer_id in list(printer_items.keys()):
+        printer = printers.get(printer_id)
+        if not printer or not printer.is_admin:
+            continue
+
+        p_items = printer_items[printer_id]
+
+        # Admin uchun other_printer_items: oddiy printerlarning maxsulotlari + holati
+        admin_other = {}
+        for other_pid, other_items in printer_items.items():
+            if other_pid == printer_id:
+                continue
+            other_printer = printers.get(other_pid)
+            if other_printer and not other_printer.is_admin:
+                status = printer_results.get(other_printer.name, 'pending')
+                status_suffix = ''
+                if status == 'failed':
+                    status_suffix = ' - CHOP ETILMADI!'
+                elif status == 'pending':
+                    status_suffix = ' - kutilmoqda'
+                key = f"{other_printer.name}{status_suffix}"
+                admin_other[key] = other_items
+
+        receipt = build_kitchen_receipt(
+            printer, order_data, p_items, admin_other, template=admin_template
+        )
+
+        job = PrintJob.objects.create(
+            printer=printer,
+            order_id=order_data.get('order_id', 0),
+            business_id=business_id,
+            status=PrintJob.STATUS_PENDING,
+            content=receipt.get_text(),
+            items_data=p_items,
+        )
+
+        result, error = send_to_printer(printer, receipt.get_bytes())
+
+        if result == 'cloud':
+            logger.info(
+                f"Buyurtma #{order_data.get('order_id')} -> "
+                f"{printer.name} (admin): agent kutilmoqda"
+            )
+        elif result:
+            job.mark_completed()
+            logger.info(
+                f"Buyurtma #{order_data.get('order_id')} -> "
+                f"{printer.name} (admin): chop etildi"
+            )
+        else:
+            job.mark_failed(error)
+            logger.error(
+                f"Buyurtma #{order_data.get('order_id')} -> "
+                f"{printer.name} (admin): XATOLIK - {error}"
+            )
+            try:
+                from .notification_service import notify_print_failure
+                notify_print_failure(job, error)
+            except Exception as e:
+                logger.error(f"Bildirishnoma yuborib bo'lmadi: {e}")
 
         print_jobs.append(job)
 
@@ -590,6 +724,11 @@ def retry_print_job(job: PrintJob):
         return True, None
     else:
         job.mark_failed(error)
+        try:
+            from .notification_service import notify_print_failure
+            notify_print_failure(job, error)
+        except Exception as e:
+            logger.error(f"Bildirishnoma yuborib bo'lmadi: {e}")
         return False, error
 
 
@@ -606,10 +745,12 @@ def send_test_print(printer: Printer):
     rb.add_text(f"Model: {printer.printer_model or 'Nomalum'}", center=True)
     rb.add_text(f"Ulanish: {printer.get_connection_type_display()}", center=True)
 
-    if printer.connection_type == Printer.CONNECTION_NETWORK:
+    if printer.connection_type in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI):
         rb.add_text(f"IP: {printer.ip_address}:{printer.port}", center=True)
-    else:
+    elif printer.connection_type == Printer.CONNECTION_USB:
         rb.add_text(f"USB: {printer.usb_path}", center=True)
+    else:
+        rb.add_text(f"Cloud: Agent orqali", center=True)
 
     rb.add_text(f"Qog'oz: {printer.paper_width}mm", center=True)
     rb.add_empty_line()

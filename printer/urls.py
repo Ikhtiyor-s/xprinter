@@ -81,10 +81,28 @@ urlpatterns = [
     path('integration-template/<int:pk>/delete/', views.IntegrationTemplateDeleteView.as_view(), name='integration-template-delete'),
 
     # ============================================================
+    # RECEIPT TEMPLATE (Chek shablonlari)
+    # ============================================================
+    path('receipt-template/list/', views.ReceiptTemplateListView.as_view(), name='receipt-template-list'),
+    path('receipt-template/<int:business_id>/detail/', views.ReceiptTemplateDetailView.as_view(), name='receipt-template-detail'),
+    path('receipt-template/save/', views.ReceiptTemplateSaveView.as_view(), name='receipt-template-save'),
+    path('receipt-template/<int:business_id>/delete/', views.ReceiptTemplateDeleteView.as_view(), name='receipt-template-delete'),
+
+    # ============================================================
     # NONBOR POLLING (avtomatik buyurtma olish)
     # ============================================================
     path('nonbor/poll/<int:business_id>/', views.NonborPollView.as_view(), name='nonbor-poll'),
     path('nonbor/orders/<int:business_id>/', views.NonborOrdersView.as_view(), name='nonbor-orders'),
     path('nonbor/poll-start/<int:business_id>/', views.NonborPollStartView.as_view(), name='nonbor-poll-start'),
     path('nonbor/poll-stop/<int:business_id>/', views.NonborPollStopView.as_view(), name='nonbor-poll-stop'),
+
+    # ============================================================
+    # NOTIFICATIONS (Printer xatolik bildirishnomalari)
+    # ============================================================
+    path('notification/list/', views.NotificationListView.as_view(), name='notification-list'),
+    path('notification/unread-count/', views.NotificationUnreadCountView.as_view(), name='notification-unread-count'),
+    path('notification/mark-read/', views.NotificationMarkReadView.as_view(), name='notification-mark-read'),
+    path('notification-config/save/', views.NotificationConfigSaveView.as_view(), name='notification-config-save'),
+    path('notification-config/<int:business_id>/detail/', views.NotificationConfigDetailView.as_view(), name='notification-config-detail'),
+    path('notification-config/test-telegram/', views.NotificationTestTelegramView.as_view(), name='notification-test-telegram'),
 ]

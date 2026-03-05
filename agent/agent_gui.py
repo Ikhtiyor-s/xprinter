@@ -76,7 +76,7 @@ def save_config(agent):
 # {
 #   "id"         : "uuid",
 #   "name"       : "Oshxona printer",   ← serverda ko'rsatilgan nom bilan mos kelishi kerak
-#   "connection" : "network"|"usb"|"auto",
+#   "connection" : "network"|"usb"|"wifi"|"auto",
 #   "ip"         : "192.168.1.100",
 #   "port"       : 9100,
 #   "usb"        : "XPrinter POS-80",
@@ -223,7 +223,7 @@ def _send_usb_linux(path, data):
 def send_to_printer(conn, ip, port, usb, paper_width, content):
     """Printerga ESC/POS yuborish."""
     data = _escpos(content, int(paper_width))
-    if conn == 'network' and ip:
+    if conn in ('network', 'wifi') and ip:
         return _send_network(ip, port, data)
     if usb:
         return _send_usb_win(usb, data) if IS_WINDOWS else _send_usb_linux(usb, data)
@@ -442,7 +442,7 @@ class PrinterDialog(tk.Toplevel):
         tk.Label(row2, text="Ulanish turi *", width=18, anchor='w',
                  font=FONT, fg=FGD, bg=BG).pack(side='left')
         self._conn = tk.StringVar(value=d.get('connection', 'network'))
-        for val, txt in [('network', 'Tarmoq (IP)'), ('usb', 'USB / Windows'), ('auto', 'Auto (serverdan)')]:
+        for val, txt in [('network', 'Tarmoq (IP)'), ('wifi', 'WiFi'), ('usb', 'USB / Windows'), ('auto', 'Auto (serverdan)')]:
             tk.Radiobutton(row2, text=txt, variable=self._conn, value=val,
                            bg=BG, fg=FG, selectcolor=BG3, activebackground=BG,
                            font=('Segoe UI', 9),
@@ -507,9 +507,10 @@ class PrinterDialog(tk.Toplevel):
 
     def _on_conn_change(self):
         conn = self._conn.get()
+        net_active = conn in ('network', 'wifi')
         for w in self._net_frame.winfo_children():
             for c in w.winfo_children():
-                c.configure(state='normal' if conn == 'network' else 'disabled')
+                c.configure(state='normal' if net_active else 'disabled')
         for w in self._usb_frame.winfo_children():
             for c in w.winfo_children():
                 try:
@@ -523,7 +524,7 @@ class PrinterDialog(tk.Toplevel):
             messagebox.showwarning("Xato", "Printer nomini kiriting!", parent=self)
             return
         conn = self._conn.get()
-        if conn == 'network' and not self._ip.get().strip():
+        if conn in ('network', 'wifi') and not self._ip.get().strip():
             messagebox.showwarning("Xato", "IP manzilni kiriting!", parent=self)
             return
         if conn == 'usb' and not self._usb_var.get().strip():
@@ -741,6 +742,9 @@ class MainWindow:
             if conn == 'network':
                 addr = f"{p.get('ip', '')}:{p.get('port', 9100)}"
                 ctype = '🌐 Tarmoq'
+            elif conn == 'wifi':
+                addr = f"{p.get('ip', '')}:{p.get('port', 9100)}"
+                ctype = '📶 WiFi'
             elif conn == 'usb':
                 addr  = p.get('usb', '')
                 ctype = '🖨 USB'

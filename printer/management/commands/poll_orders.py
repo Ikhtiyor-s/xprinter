@@ -84,6 +84,17 @@ class Command(BaseCommand):
                 if not once:
                     time.sleep(2)
 
+            # Cloud printer timeout tekshirish
+            try:
+                from printer.services.notification_service import check_cloud_timeouts
+                timed_out = check_cloud_timeouts()
+                if timed_out:
+                    self.stdout.write(
+                        self.style.WARNING(f'{timed_out} ta cloud job timeout')
+                    )
+            except Exception as e:
+                logger.error(f'Cloud timeout tekshirish xato: {e}')
+
             if once:
                 self.stdout.write('Bir martalik polling tugadi.')
                 return
