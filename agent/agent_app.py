@@ -12,7 +12,14 @@ from datetime import datetime
 
 # ── BASE DIR ────────────────────────────────────────────────
 if getattr(sys, 'frozen', False):
-    BASE_DIR = Path(sys.executable).parent
+    # EXE rejimda C:\NonborPrintAgent\ papkada ishlaydi
+    BASE_DIR = Path('C:/NonborPrintAgent')
+    BASE_DIR.mkdir(exist_ok=True)
+    # PyInstaller EXE da SSL sertifikat yo'lini to'g'ri sozlash
+    _cert_file = os.path.join(sys._MEIPASS, 'certifi', 'cacert.pem')
+    if os.path.exists(_cert_file):
+        os.environ['SSL_CERT_FILE'] = _cert_file
+        os.environ['REQUESTS_CA_BUNDLE'] = _cert_file
 else:
     BASE_DIR = Path(__file__).parent
 
@@ -36,13 +43,19 @@ def _cache_path(business_id=None):
 
 # ── SERVER URL (server_url.txt dan o'qiladi, aks holda default) ─────────
 _SERVER_URL_FILE = BASE_DIR / 'server_url.txt'
+_DEFAULT_SERVER = "https://scrubbier-shantae-vaunted.ngrok-free.dev"
 def _load_server_url():
     if _SERVER_URL_FILE.exists():
         try:
             url = _SERVER_URL_FILE.read_text(encoding='utf-8').strip()
             if url: return url.rstrip('/')
         except: pass
-    return "http://localhost:8799"
+    # Fayl yo'q — avtomatik yaratish
+    try:
+        _SERVER_URL_FILE.write_text(_DEFAULT_SERVER, encoding='utf-8')
+    except Exception:
+        pass
+    return _DEFAULT_SERVER
 
 SERVER_URL = _load_server_url()
 
@@ -73,7 +86,10 @@ except ImportError:
     HAS_TRAY = False
 
 try:
-    import requests as _req; HAS_REQ = True
+    import requests as _req
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    HAS_REQ = True
 except ImportError:
     HAS_REQ = False
     import urllib.request, base64
@@ -95,7 +111,8 @@ def save_config(a):
     c = configparser.ConfigParser()
     c['business'] = {'id': a.business_id, 'name': getattr(a, 'business_name', '')}
     c['auth']     = {'username': a.username, 'password': a.password}
-    c['settings'] = {'poll_interval': str(a.poll_interval)}
+    c['settings'] = {'poll_interval': str(a.poll_interval),
+                     'server_url': a.server_url}
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f: c.write(f)
 
 def is_logged_in():
@@ -120,6 +137,8 @@ def save_login_to_history(username):
     with open(SAVED_LOGINS_FILE, 'w', encoding='utf-8') as f:
         json.dump(logins[:10], f, ensure_ascii=False)
 
+_NGROK_HEADER = {'ngrok-skip-browser-warning': 'true'}
+
 def api_fetch_menu(server_url, username, password, business_id):
     """GET /api/v2/agent/menu/<business_id>/ → (ok, products, error)
     products: [{id, name, category_id, category_name}]"""
@@ -127,19 +146,24 @@ def api_fetch_menu(server_url, username, password, business_id):
         full = f"{server_url}/api/v2/agent/menu/{business_id}/"
         params = {'username': username, 'password': password}
         if HAS_REQ:
-            r = _req.get(full, params=params, timeout=60)
+            r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60, verify=False)
             try: data = r.json()
-            except: return False, [], f"Server xatosi ({r.status_code})"
+            except: return False, [], f"Server xatosi ({r.status_code}): {r.text[:100]}"
         else:
-            import urllib.parse
+            import urllib.parse, ssl
             qs = urllib.parse.urlencode(params)
             req = urllib.request.Request(f"{full}?{qs}")
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            req.add_header('ngrok-skip-browser-warning', 'true')
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read())
         if data.get('success'):
             return True, data.get('products', []), None
         return False, [], data.get('error', 'Noma\'lum xato')
     except Exception as e:
+        logger.error(f"Menu fetch xato: {e}")
         return False, [], str(e)
 
 
@@ -161,28 +185,35 @@ def api_sync_printer(server_url, username, password, printer_data):
             'product_names': printer_data.get('product_names', {}),
         }
         if HAS_REQ:
-            r = _req.post(full, json=payload, timeout=15)
+            r = _req.post(full, json=payload, headers=_NGROK_HEADER, timeout=15, verify=False)
             try: data = r.json()
-            except: return False, None, f"Server xatosi ({r.status_code})"
+            except: return False, None, f"Server xatosi ({r.status_code}): {r.text[:100]}"
         else:
             body = json.dumps(payload).encode()
             req = urllib.request.Request(full, data=body, method='POST')
             req.add_header('Content-Type', 'application/json')
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            req.add_header('ngrok-skip-browser-warning', 'true')
+            import ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read())
         if data.get('success'):
             return True, data.get('printer_id'), None
         return False, None, data.get('error', 'Sync xato')
     except Exception as e:
+        logger.error(f"Printer sync xato: {e}")
         return False, None, str(e)
 
 
-def api_agent_auth(username, password):
+def api_agent_auth(server_url, username, password):
     """POST /api/v2/agent/auth/ → (ok, business_id, business_name, error)"""
     try:
-        full = f"{SERVER_URL}/api/v2/agent/auth/"
+        full = f"{server_url}/api/v2/agent/auth/"
         if HAS_REQ:
-            r = _req.post(full, json={'username': username, 'password': password}, timeout=10)
+            r = _req.post(full, json={'username': username, 'password': password},
+                          headers=_NGROK_HEADER, timeout=10, verify=False)
             text = r.text.strip()
             if not text:
                 return False, None, None, "Server bo'sh javob qaytardi (server ishlamayapti?)"
@@ -192,7 +223,12 @@ def api_agent_auth(username, password):
             body = json.dumps({'username': username, 'password': password}).encode()
             req = urllib.request.Request(full, data=body, method='POST')
             req.add_header('Content-Type', 'application/json')
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            req.add_header('ngrok-skip-browser-warning', 'true')
+            import ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
                 raw = resp.read()
                 if not raw.strip(): return False, None, None, "Server bo'sh javob qaytardi"
                 data = json.loads(raw)
@@ -257,20 +293,30 @@ def _get(url, u, p, path, params=None):
     full = f"{url.rstrip('/')}/api/v2/{path}"
     if params: full += '?' + '&'.join(f'{k}={v}' for k,v in params.items())
     if HAS_REQ:
-        return _req.get(full, auth=(u, p), timeout=10).json()
+        return _req.get(full, auth=(u, p), headers=_NGROK_HEADER, timeout=10, verify=False).json()
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(full)
     req.add_header('Authorization', 'Basic ' + base64.b64encode(f'{u}:{p}'.encode()).decode())
-    with urllib.request.urlopen(req, timeout=10) as r: return json.loads(r.read())
+    req.add_header('ngrok-skip-browser-warning', 'true')
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as r: return json.loads(r.read())
 
 def _post(url, u, p, path, data):
     full = f"{url.rstrip('/')}/api/v2/{path}"
     if HAS_REQ:
-        return _req.post(full, json=data, auth=(u, p), timeout=10).json()
+        return _req.post(full, json=data, auth=(u, p), headers=_NGROK_HEADER, timeout=10, verify=False).json()
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     body = json.dumps(data).encode()
     req = urllib.request.Request(full, data=body, method='POST')
     req.add_header('Authorization', 'Basic ' + base64.b64encode(f'{u}:{p}'.encode()).decode())
     req.add_header('Content-Type', 'application/json')
-    with urllib.request.urlopen(req, timeout=10) as r: return json.loads(r.read())
+    req.add_header('ngrok-skip-browser-warning', 'true')
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as r: return json.loads(r.read())
 
 # ── PRINTER ──────────────────────────────────────────────────
 def local_printers():
@@ -280,6 +326,163 @@ def local_printers():
             return [n for _,_,n,_ in raw]
         except: pass
     return []
+
+DRIVERS_DIR = BASE_DIR / 'drivers'
+
+def get_available_usb_ports():
+    """Windows USB Monitor portlarini olish (USB001, USB002, ...)"""
+    if not IS_WIN:
+        return []
+    ports = []
+    try:
+        import subprocess as sp
+        r = sp.run(['reg', 'query',
+                     r'HKLM\SYSTEM\CurrentControlSet\Control\Print\Monitors\USB Monitor\Ports'],
+                    capture_output=True, text=True, timeout=10)
+        for line in r.stdout.split('\n'):
+            line = line.strip()
+            if line.startswith('USB'):
+                ports.append(line.split()[0])
+    except:
+        pass
+    if not ports:
+        ports = [f"USB{i:03d}" for i in range(1, 5)]
+    return ports
+
+def install_bundled_drivers():
+    """drivers/ papkadan .inf fayllarni Windows drayver do'koniga qo'shish.
+    Returns: (installed_count, errors_list)
+    """
+    if not IS_WIN or not DRIVERS_DIR.exists():
+        return 0, ["drivers/ papka topilmadi"]
+    import subprocess as sp
+    inf_files = list(DRIVERS_DIR.glob('**/*.inf'))
+    if not inf_files:
+        return 0, ["drivers/ papkada .inf fayl topilmadi"]
+    installed = 0
+    errors = []
+    for inf in inf_files:
+        try:
+            r = sp.run(['pnputil', '/add-driver', str(inf), '/install'],
+                        capture_output=True, text=True, timeout=60)
+            if r.returncode == 0:
+                installed += 1
+                logger.info(f"Drayver o'rnatildi: {inf.name}")
+            else:
+                out = (r.stdout + r.stderr).strip()
+                # Allaqachon mavjud — xatolik emas
+                if 'already exists' in out.lower() or 'уже' in out.lower():
+                    installed += 1
+                else:
+                    errors.append(f"{inf.name}: {out[:100]}")
+        except Exception as e:
+            errors.append(f"{inf.name}: {e}")
+    return installed, errors
+
+def install_printer_with_driver(port_name, printer_name, driver_name="Generic / Text Only"):
+    """Printer qo'shish (drayver nomi bilan).
+    Returns: (success, error_message)
+    """
+    if not IS_WIN:
+        return False, "Faqat Windows da ishlaydi"
+    import subprocess as sp
+    try:
+        cmd = (f'rundll32 printui.dll,PrintUIEntry /if '
+               f'/b "{printer_name}" /r "{port_name}" /m "{driver_name}"')
+        r = sp.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        if r.returncode == 0:
+            logger.info(f"Printer o'rnatildi: {printer_name} ({port_name}) [{driver_name}]")
+            return True, None
+        return False, (r.stdout + r.stderr).strip()[:200]
+    except Exception as e:
+        return False, str(e)
+
+def get_installed_printer_drivers():
+    """Windows da o'rnatilgan printer drayverlar ro'yxati"""
+    drivers = []
+    try:
+        import subprocess as sp
+        r = sp.run(['powershell', '-Command',
+                     'Get-PrinterDriver | Select-Object -ExpandProperty Name'],
+                    capture_output=True, text=True, timeout=15)
+        for line in r.stdout.strip().split('\n'):
+            name = line.strip()
+            if name:
+                drivers.append(name)
+    except:
+        drivers = ['Generic / Text Only']
+    return drivers
+
+def detect_and_install_printers():
+    """To'liq jarayon: drayver o'rnatish → printer qo'shish.
+    Returns: (installed_printers, messages)
+    """
+    messages = []
+    installed_printers = []
+
+    # 1. Avval mavjud printerlarni tekshirish
+    existing = local_printers()
+    if existing:
+        messages.append(f"✓ {len(existing)} ta printer allaqachon mavjud: {', '.join(existing)}")
+        return installed_printers, messages
+
+    # 2. drivers/ papkadan drayverlarni o'rnatish
+    if DRIVERS_DIR.exists() and list(DRIVERS_DIR.glob('**/*.inf')):
+        messages.append("📦 Drayverlar o'rnatilmoqda...")
+        cnt, errs = install_bundled_drivers()
+        if cnt:
+            messages.append(f"✓ {cnt} ta drayver o'rnatildi")
+        for e in errs:
+            messages.append(f"⚠ {e}")
+
+        # Drayver o'rnatilgandan keyin Windows avtomatik printerni tanishi kerak
+        import time
+        time.sleep(3)
+
+        # Yangi printerlarni tekshirish
+        new_printers = local_printers()
+        if new_printers:
+            messages.append(f"✓ Printerlar topildi: {', '.join(new_printers)}")
+            return installed_printers, messages
+
+    # 3. USB portlarni tekshirish va Generic drayver bilan o'rnatish
+    usb_ports = get_available_usb_ports()
+    messages.append(f"🔍 USB portlar: {', '.join(usb_ports) if usb_ports else 'topilmadi'}")
+
+    # Mavjud drayverlar ro'yxati
+    drivers = get_installed_printer_drivers()
+    # POS/Thermal/XPrinter drayverini afzal ko'rish
+    pos_driver = 'Generic / Text Only'
+    for d in drivers:
+        dl = d.lower()
+        if any(k in dl for k in ['xprinter', 'pos-', 'pos ', 'thermal', 'receipt', 'gprinter']):
+            pos_driver = d
+            break
+
+    messages.append(f"🖨 Drayver: {pos_driver}")
+
+    for port in usb_ports:
+        name = f"POS-Printer ({port})"
+        ok, err = install_printer_with_driver(port, name, pos_driver)
+        if ok:
+            installed_printers.append(name)
+            messages.append(f"✓ {name} o'rnatildi")
+        else:
+            messages.append(f"⚠ {port}: {err}")
+
+    # 4. Yana tekshirish
+    final = local_printers()
+    if final and not installed_printers:
+        messages.append(f"✓ Printerlar: {', '.join(final)}")
+
+    if not final and not installed_printers:
+        messages.append("\n❌ Printer o'rnatib bo'lmadi.\n"
+                        "Printer drayveri topilmadi.\n\n"
+                        "Drayver yuklab olish:\n"
+                        "  https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download\n\n"
+                        "Printeringiz modelini tanlang va drayverni o'rnating.")
+
+    return installed_printers, messages
 
 _I=b'\x1b\x40'; _CUT=b'\x1d\x56\x00'; _FEED=b'\x1b\x64\x03'
 _BON=b'\x1b\x45\x01'; _BOFF=b'\x1b\x45\x00'; _LFT=b'\x1b\x61\x00'
@@ -375,7 +578,8 @@ class Agent:
 
     def reload(self):
         c = load_config()
-        self.server_url    = SERVER_URL
+        saved_url = _cfg_get(c,'settings','server_url','')
+        self.server_url    = saved_url if saved_url else SERVER_URL
         self.business_id   = _cfg_get(c,'business','id','')
         self.business_name = _cfg_get(c,'business','name','')
         self.username      = _cfg_get(c,'auth','username','')
@@ -396,25 +600,40 @@ class Agent:
         return next((p for p in self.printers if p.get('name','').lower()==name), None)
 
     def _poll_orders(self):
-        """Nonbor API dan yangi buyurtmalarni olish (server orqali)"""
+        """Nonbor API dan barcha bizneslarning buyurtmalarini tekshirish (server orqali).
+        /poll-all/ endpointi barcha aktiv+printerli bizneslarni bir vaqtda poll qiladi."""
         try:
             r = _post(self.server_url, self.username, self.password,
-                      f'nonbor/poll/{self.business_id}/', {})
-            new = r.get('new_orders', 0)
-            printed = r.get('printed', 0)
-            if new > 0:
-                self.log(f"Nonbor: {new} ta yangi buyurtma, {printed} ta chop etildi")
+                      'nonbor/poll-all/', {})
+            total_new = r.get('total_new', 0)
+            total_printed = r.get('total_printed', 0)
+            results = r.get('results', [])
+            if total_new > 0:
+                for res in results:
+                    bname = res.get('business_name', '?')
+                    bnew = res.get('new_orders', 0)
+                    bprinted = res.get('printed', 0)
+                    if bnew > 0:
+                        self.log(f"📦 {bname}: {bnew} ta yangi buyurtma, {bprinted} ta chop etildi")
         except Exception:
-            pass  # Server chiqmasa yoki config yo'q bo'lsa — xato ko'rsatmaymiz
+            # Fallback: eski usul — faqat o'z biznesini poll qilish
+            try:
+                r = _post(self.server_url, self.username, self.password,
+                          f'nonbor/poll/{self.business_id}/', {})
+                new = r.get('new_orders', 0)
+                if new > 0:
+                    self.log(f"Nonbor: {new} ta yangi buyurtma")
+            except Exception:
+                pass
 
     def _poll(self):
-        # 1) Nonbor API dan yangi buyurtmalarni tekshir
+        # 1) Nonbor API dan barcha bizneslarning buyurtmalarini tekshir
         self._poll_orders()
 
-        # 2) Pending print joblarni ol
+        # 2) Pending print joblarni ol (barcha bizneslar uchun)
         try:
             r = _get(self.server_url, self.username, self.password,
-                     'print-job/agent/poll/', {'business_id': self.business_id})
+                     'print-job/agent/poll/', {'business_id': 'all'})
         except Exception as e:
             self.log(f"Server: {e}", 'error'); return
 
@@ -1003,7 +1222,7 @@ class SettingsWindow:
 
     # ── LOGIN FRAME ───────────────────────────────────────────
     def _show_login(self):
-        self.win.geometry("480x480")
+        self.win.geometry("480x540")
         if self._main_frame:
             self._main_frame.pack_forget()
         if self._login_frame:
@@ -1028,6 +1247,14 @@ class SettingsWindow:
                  font=('Segoe UI',14,'bold'), fg='#1e293b', bg=CARD).pack(anchor='w')
         tk.Label(title_f, text="Admin berilgan login va parolni kiriting",
                  font=('Segoe UI',9), fg='#94a3b8', bg=CARD).pack(anchor='w')
+
+        # Server URL
+        tk.Label(card, text="Server manzili", font=('Segoe UI',9,'bold'), fg='#475569', bg=CARD,
+                 anchor='w').pack(fill='x')
+        self._l_url = tk.Entry(card, font=('Segoe UI',10), bg='#f8fafc', fg=FG,
+                                insertbackground=FG, relief='solid', bd=1)
+        self._l_url.insert(0, self.agent.server_url)
+        self._l_url.pack(fill='x', pady=(3,10), ipady=3)
 
         # Login label + input
         tk.Label(card, text="Login", font=('Segoe UI',9,'bold'), fg='#475569', bg=CARD,
@@ -1086,6 +1313,10 @@ class SettingsWindow:
     def _do_login(self):
         u = self._l_user.get().strip()
         p = self._l_pass.get().strip()
+        url = self._l_url.get().strip().rstrip('/')
+        if not url:
+            self._l_err.config(text="Server manzilini kiriting!")
+            return
         if not u or not p:
             self._l_err.config(text="Login va parolni kiriting!")
             return
@@ -1093,12 +1324,13 @@ class SettingsWindow:
         self._l_err.config(text='')
         self.win.update()
 
-        ok, bid, bname, err = api_agent_auth(u, p)
+        ok, bid, bname, err = api_agent_auth(url, u, p)
         self._l_btn.config(text="➜  Kirish", state='normal', bg='#4f46e5')
         if not ok:
             self._l_err.config(text=f"✗ {err}")
             return
 
+        self.agent.server_url    = url
         self.agent.username      = u
         self.agent.password      = p
         self.agent.business_id   = bid
@@ -1148,6 +1380,7 @@ class SettingsWindow:
         # ── Action buttons row
         uf = tk.Frame(f, bg=BG, padx=12, pady=6); uf.pack(fill='x')
         self._btn(uf, "🔄  Mahsulotlarni yangilash", '#059669', self._check_new_products).pack(side='left')
+        self._btn(uf, "❓ Yordam", '#6366f1', self._show_help).pack(side='right', padx=(0,8))
         self._btn(uf, "⟳  Hisobdan chiqish", '#94a3b8', self._do_logout).pack(side='right')
 
         # ── Printers section (card)
@@ -1158,7 +1391,8 @@ class SettingsWindow:
         tk.Label(ph, text="— server nomi bilan mos bo'lsin",
                  font=('Segoe UI',8), fg=FGD, bg=CARD).pack(side='left', padx=6)
         ab = tk.Frame(ph, bg=CARD); ab.pack(side='right')
-        for t,clr,fn in [("+ Qo'shish",GREEN,self._add),
+        for t,clr,fn in [("🔍 Avtomatik topish",'#0891b2',self._auto_detect_printers),
+                         ("+ Qo'shish",GREEN,self._add),
                          ("✎",'#4f46e5',self._edit),("⚡ Test",ORANGE,self._tst),
                          ("✕",RED,self._del)]:
             self._btn(ab,t,clr,fn,padx=8 if len(t)<4 else 12).pack(side='left',padx=2)
@@ -1413,6 +1647,366 @@ class SettingsWindow:
         if a.server_url and a.username and a.business_id:
             return (a.server_url, a.username, a.password, a.business_id)
         return None
+
+    def _auto_detect_printers(self):
+        """USB printerlarni avtomatik aniqlash va drayver o'rnatish"""
+        self._logline("🔍 Printerlar qidirilmoqda va drayverlar o'rnatilmoqda...")
+
+        def _do():
+            printers, messages = detect_and_install_printers()
+
+            def _show():
+                for m in messages:
+                    tag = 'ok' if '✓' in m else ('error' if '✕' in m or '❌' in m else None)
+                    self._logline(m, tag)
+                self._refresh_tbl()
+
+                final = local_printers()
+                if final:
+                    msg = f"Topilgan printerlar ({len(final)}):\n\n"
+                    for i, p in enumerate(final, 1):
+                        msg += f"  {i}. {p}\n"
+                    if printers:
+                        msg += f"\n✓ {len(printers)} ta yangi printer o'rnatildi!"
+                    msg += "\n'+ Qo'shish' tugmasini bosib printer sozlang."
+                    messagebox.showinfo("Printerlar", msg, parent=self.win)
+                else:
+                    self._show_driver_help()
+
+            self.win.after(0, _show)
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _show_driver_help(self):
+        """Printer topilmaganda drayver o'rnatish qo'llanmasi"""
+        DRIVER_URL = "https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download"
+
+        dlg = tk.Toplevel(self.win)
+        dlg.title("Printer drayverini o'rnatish")
+        dlg.geometry("520x420")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        dlg.transient(self.win)
+        dlg.grab_set()
+
+        # Sarlavha
+        hdr = tk.Frame(dlg, bg=RED, padx=16, pady=10)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text="⚠  Printer topilmadi", font=('Segoe UI',13,'bold'),
+                 fg='white', bg=RED).pack(anchor='w')
+
+        body = tk.Frame(dlg, bg=BG, padx=20, pady=12)
+        body.pack(fill='both', expand=True)
+
+        txt = ("Kompyuteringizda printer drayveri o'rnatilmagan.\n"
+               "Quyidagi qadamlarni bajaring:\n")
+        tk.Label(body, text=txt, font=('Segoe UI',10), fg=FG, bg=BG,
+                 justify='left', anchor='w').pack(fill='x', pady=(0,8))
+
+        steps = [
+            ("1️⃣", "Printeringizni USB kabel bilan kompyuterga ulang"),
+            ("2️⃣", "Quyidagi havola orqali printeringizning drayverini yuklab oling:"),
+            ("3️⃣", "Yuklangan faylni ishga tushirib drayverni o'rnating"),
+            ("4️⃣", "O'rnatish tugagach, ushbu dasturda '🔍 Avtomatik topish' tugmasini bosing"),
+        ]
+        for num, step in steps:
+            row = tk.Frame(body, bg=BG)
+            row.pack(fill='x', pady=3)
+            tk.Label(row, text=num, font=('Segoe UI',10), fg=FG, bg=BG,
+                     width=3).pack(side='left', anchor='n')
+            tk.Label(row, text=step, font=('Segoe UI',10), fg=FG, bg=BG,
+                     wraplength=430, justify='left', anchor='w').pack(side='left', fill='x')
+
+        # Havola tugmasi
+        link_frame = tk.Frame(body, bg=BG)
+        link_frame.pack(fill='x', pady=(8,4))
+        tk.Label(link_frame, text="   ", bg=BG).pack(side='left')
+        link_btn = tk.Button(link_frame,
+            text="🌐  XPrinter drayverlarini yuklab olish",
+            font=('Segoe UI',10,'bold'), fg='white', bg='#2563eb',
+            activeforeground='white', activebackground='#1d4ed8',
+            relief='flat', padx=16, pady=6, cursor='hand2',
+            command=lambda: __import__('webbrowser').open(DRIVER_URL))
+        link_btn.pack(side='left')
+
+        # URL ko'rsatish
+        tk.Label(body, text=DRIVER_URL,
+                 font=('Consolas',8), fg='#6366f1', bg=BG,
+                 cursor='hand2').pack(anchor='w', padx=28, pady=(2,8))
+
+        # Qo'shimcha yo'riqnoma
+        note = tk.Frame(body, bg='#fef3c7', padx=12, pady=8)
+        note.pack(fill='x', pady=(4,0))
+        tk.Label(note, text="💡 Maslahat:", font=('Segoe UI',9,'bold'),
+                 fg='#92400e', bg='#fef3c7', anchor='w').pack(fill='x')
+        tk.Label(note,
+                 text=("Saytda printeringiz modelini tanlang (masalan: XP-80C, XP-58IIH).\n"
+                       "Agar modelni bilmasangiz — printer orqa tomonidagi yorliqqa qarang.\n"
+                       "Drayverni o'rnatgandan keyin kompyuterni qayta ishga tushiring."),
+                 font=('Segoe UI',9), fg='#78350f', bg='#fef3c7',
+                 wraplength=440, justify='left', anchor='w').pack(fill='x')
+
+        # Yopish tugmasi
+        tk.Button(dlg, text="Tushundim", font=('Segoe UI',10,'bold'),
+                  fg='white', bg='#4f46e5', relief='flat',
+                  padx=24, pady=6, cursor='hand2',
+                  command=dlg.destroy).pack(pady=12)
+
+    def _show_help(self):
+        """Yordam oynasi — to'liq qo'llanma"""
+        dlg = tk.Toplevel(self.win)
+        dlg.title("Yordam — Nonbor Print Agent")
+        dlg.geometry("620x580")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, True)
+        dlg.transient(self.win)
+        dlg.grab_set()
+
+        # Sarlavha
+        hdr = tk.Frame(dlg, bg='#4f46e5', padx=16, pady=12)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text="📖  Yordam — Nonbor Print Agent",
+                 font=('Segoe UI',14,'bold'), fg='white', bg='#4f46e5').pack(anchor='w')
+        tk.Label(hdr, text="Dastur qanday ishlaydi va qanday sozlanadi",
+                 font=('Segoe UI',9), fg='#c7d2fe', bg='#4f46e5').pack(anchor='w')
+
+        # Scrollable content
+        canvas = tk.Canvas(dlg, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(dlg, orient='vertical', command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=BG)
+
+        scroll_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=scroll_frame, anchor='nw', width=598)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+
+        # Mouse wheel scroll
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), 'units')
+        canvas.bind_all('<MouseWheel>', _on_mousewheel)
+        dlg.bind('<Destroy>', lambda e: canvas.unbind_all('<MouseWheel>'))
+
+        body = scroll_frame
+        pad = {'padx': 16, 'pady': (0, 4)}
+
+        def section(title, icon='📌'):
+            f = tk.Frame(body, bg='#e0e7ff', padx=12, pady=6)
+            f.pack(fill='x', **pad, pady=(12, 4))
+            tk.Label(f, text=f"{icon}  {title}", font=('Segoe UI',11,'bold'),
+                     fg='#312e81', bg='#e0e7ff').pack(anchor='w')
+
+        def text(content):
+            tk.Label(body, text=content, font=('Segoe UI',9), fg=FG, bg=BG,
+                     wraplength=560, justify='left', anchor='w').pack(fill='x', **pad)
+
+        # ═══ 1. DASTUR HAQIDA ═══
+        section("Dastur haqida", "ℹ️")
+        text("Nonbor Print Agent — buyurtmalarni avtomatik chop etish dasturi.\n"
+             "Dastur serverdan yangi buyurtmalarni tekshiradi va ulangan\n"
+             "printerga avtomatik chop etadi. Restoran, kafe, do'kon uchun.")
+
+        # ═══ 2. BIRINCHI MARTA ISHGA TUSHIRISH ═══
+        section("Birinchi marta ishga tushirish", "🚀")
+        text("1. Dasturni ishga tushiring\n"
+             "2. Server manzilini kiriting (admin beradi)\n"
+             "3. Login va parolni kiriting\n"
+             "4. 'Kirish' tugmasini bosing\n"
+             "5. Muvaffaqiyatli kirganingizdan keyin asosiy sahifa ochiladi")
+
+        # ═══ 3. PRINTER SOZLASH ═══
+        section("Printer sozlash", "🖨")
+        text("Printerni ulash va sozlash:\n\n"
+             "1. Printerni kompyuterga USB kabel bilan ulang\n"
+             "2. '🔍 Avtomatik topish' tugmasini bosing\n"
+             "   — Dastur printerni avtomatik topadi\n"
+             "   — Agar topmasa, drayver o'rnatish yo'riqnomasi ko'rsatiladi\n\n"
+             "3. '+ Qo'shish' tugmasini bosing\n"
+             "4. Printer sozlamalarini kiriting:\n"
+             "   • Yorliq — printer nomi (masalan: Oshxona)\n"
+             "   • Printer nomi — serverdagi nom bilan bir xil bo'lsin\n"
+             "   • Ulanish turi — USB, Tarmoq yoki WiFi\n"
+             "   • Qog'oz kengligi — 80mm yoki 58mm\n"
+             "5. Mahsulotlarni tanlang — qaysi taomlar shu printerda chop etilsin\n"
+             "6. 'Saqlash' bosing")
+
+        # ═══ 4. ULANISH TURLARI — BATAFSIL ═══
+        section("🔌  USB orqali ulash (eng oson)", "🔌")
+        text("USB kabel bilan printerdan kompyuterga to'g'ridan-to'g'ri ulash.\n"
+             "Bu eng sodda va ishonchli usul.\n\n"
+             "Qadamlar:\n"
+             "1. Printerni USB kabel bilan kompyuterga ulang\n"
+             "2. Printerni yoqing (orqa tomonidagi tugma)\n"
+             "3. Windows avtomatik tanimasligi mumkin — 30 soniya kuting\n"
+             "4. Dasturda '🔍 Avtomatik topish' tugmasini bosing\n"
+             "5. Agar printer topilsa — ro'yxatda paydo bo'ladi\n"
+             "6. Ro'yxatdan printerni tanlab, 'Qo'shish' bosing\n\n"
+             "Agar printer ro'yxatda ko'rinmasa:\n"
+             "  → Drayver o'rnatish kerak (pastda 'Drayver o'rnatish' bo'limiga qarang)\n"
+             "  → USB kabelni boshqa portga ulang\n"
+             "  → Printerni o'chirib qayta yoqing\n\n"
+             "Windows tekshirish:\n"
+             "  → Boshqarish paneli → Qurilmalar va printerlar\n"
+             "  → Printeringiz shu ro'yxatda bormi tekshiring\n"
+             "  → Agar '!' belgisi bo'lsa — drayver muammo")
+
+        section("🌐  Tarmoq (LAN kabel) orqali ulash", "🌐")
+        text("Printer Ethernet (LAN) kabel bilan routerga ulangan.\n"
+             "Bir nechta kompyuter bitta printerdan foydalanishi mumkin.\n\n"
+             "1-qadam: Printerni tarmoqqa ulash\n"
+             "  • Printerning orqa tomonidagi LAN portiga kabel ulang\n"
+             "  • Kabelning ikkinchi uchini router/switchga ulang\n"
+             "  • Printerni yoqing\n\n"
+             "2-qadam: Printer IP manzilini aniqlash\n"
+             "  • Ko'p printerlarda 'Feed' tugmasini 3-5 soniya bosib turing\n"
+             "  • Self-test cheki chiqadi — unda IP manzil yozilgan\n"
+             "  • Masalan: 192.168.1.87\n"
+             "  • Agar IP topilmasa — printer menyusidan qarang\n"
+             "  • Ba'zi printerlar DHCP bilan avtomatik IP oladi\n\n"
+             "3-qadam: Dasturda sozlash\n"
+             "  • Printer qo'shishda ulanish turini 'Tarmoq' tanlang\n"
+             "  • IP manzilni kiriting: 192.168.1.87\n"
+             "  • Port: 9100 (standart, o'zgartirmang)\n"
+             "  • '⚡ Test' bosib tekshiring\n\n"
+             "Muhim:\n"
+             "  → Kompyuter va printer BIR tarmoqda bo'lishi shart\n"
+             "  → Printer IP si o'zgarmesligi uchun statik IP qo'ying\n"
+             "  → Router sozlamalarida printerga doimiy IP berish:\n"
+             "     Routerga kiring → DHCP → Address Reservation\n"
+             "     Printer MAC → 192.168.1.87 ga biriktiring")
+
+        section("📡  WiFi orqali ulash", "📡")
+        text("Printer WiFi orqali tarmoqqa ulangan.\n"
+             "Kabel talab qilinmaydi, lekin WiFi signal yaxshi bo'lishi kerak.\n\n"
+             "1-qadam: Printerni WiFi ga ulash\n"
+             "  • Printerni yoqing\n"
+             "  • Printer menyusiga kiring (tugmalar bilan)\n"
+             "  • WiFi sozlamasini toping\n"
+             "  • WiFi tarmog'ingiz nomini (SSID) tanlang\n"
+             "  • Parolni kiriting\n"
+             "  • Ba'zi printerlarda WPS tugma bor — routerda\n"
+             "    WPS bosib, printerda ham WPS bosing\n\n"
+             "2-qadam: IP manzilni aniqlash\n"
+             "  • 'Feed' tugmasini 3-5 soniya bosib turing\n"
+             "  • Self-test chekida WiFi IP manzil ko'rsatiladi\n"
+             "  • Masalan: 192.168.1.105\n"
+             "  • Agar 0.0.0.0 bo'lsa — WiFi ga ulanmagan\n\n"
+             "3-qadam: Dasturda sozlash\n"
+             "  • Ulanish turini 'WiFi' tanlang\n"
+             "  • IP manzilni kiriting\n"
+             "  • Port: 9100\n"
+             "  • '⚡ Test' bosib tekshiring\n\n"
+             "Muhim:\n"
+             "  → Kompyuter va printer BIR WiFi tarmog'ida bo'lsin\n"
+             "  → WiFi signal kuchli joyga qo'ying\n"
+             "  → Printer WiFi uzilsa — qayta ulanmaydi,\n"
+             "     printerni o'chirib yoqing\n"
+             "  → Ishonchli ish uchun LAN kabel tavsiya etiladi")
+
+        section("☁  Bulutli (Cloud) printer", "☁")
+        text("Printer serverga to'g'ridan-to'g'ri ulangan.\n"
+             "Kompyuter o'chiq bo'lsa ham server orqali chop etish mumkin.\n\n"
+             "Bu usul faqat qo'llab-quvvatlanadigan printerlarda ishlaydi.\n\n"
+             "Sozlash:\n"
+             "  • Admin panelda printerni 'Cloud' turida qo'shing\n"
+             "  • Server avtomatik printerni topadi\n"
+             "  • Agentda alohida sozlash shart emas\n\n"
+             "Afzalliklari:\n"
+             "  → Kompyuter yoqilmasa ham ishlaydi\n"
+             "  → Internet orqali istalgan joydan boshqarish\n\n"
+             "Kamchiliklari:\n"
+             "  → Internet uzilsa — chop etilmaydi\n"
+             "  → Barcha printerlar qo'llab-quvvatlamaydi")
+
+        section("⚙  Qaysi ulanish turini tanlash kerak?", "⚙")
+        text("Vaziyatga qarab tavsiya:\n\n"
+             "✅ 1 ta kompyuter, 1 ta printer → USB (eng oson)\n"
+             "✅ Bir nechta kompyuter, 1 printer → Tarmoq (LAN)\n"
+             "✅ Kabel tortish imkoni yo'q → WiFi\n"
+             "✅ Kompyuter yo'q, faqat server → Cloud\n\n"
+             "Ishonchlilik tartibi:\n"
+             "  1. USB — eng ishonchli, kabel orqali\n"
+             "  2. Tarmoq (LAN) — ishonchli, tez\n"
+             "  3. WiFi — qulay, lekin uzilishi mumkin\n"
+             "  4. Cloud — internet kerak\n\n"
+             "Ko'p sotuvchilar uchun USB tavsiya etiladi —\n"
+             "drayver o'rnatib, dasturda '🔍 Avtomatik topish' bosish kifoya.")
+
+        # ═══ 5. AGENT ISHGA TUSHIRISH ═══
+        section("Agentni ishga tushirish", "▶")
+        text("1. '▶ ISHGA TUSHIR' tugmasini bosing\n"
+             "2. Agent har necha sekundda serverdan yangi buyurtmalarni tekshiradi\n"
+             "3. Yangi buyurtma kelsa — avtomatik chop etadi\n"
+             "4. To'xtatish uchun '⏹ TO'XTAT' bosing\n\n"
+             "Agentni fon rejimda ishlatish:\n"
+             "  • Oynani yopganingizda dastur tray ikonida qoladi\n"
+             "  • Tray ikonda o'ng tugma bosib boshqarish mumkin")
+
+        # ═══ 6. AVTOMATIK ISHGA TUSHISH ═══
+        section("Kompyuter yoqilganda avtomatik ishga tushish", "⚡")
+        text("Pastdagi 'Windows yonganda avtomatik ishga tushir'\n"
+             "belgisini qo'ying.\n\n"
+             "Shundan keyin kompyuter har yoqilganda dastur avtomatik\n"
+             "ishga tushadi va buyurtmalarni chop eta boshlaydi.\n"
+             "Qo'lda hech narsa qilish shart emas.")
+
+        # ═══ 7. MAHSULOTLARNI YANGILASH ═══
+        section("Mahsulotlarni yangilash", "🔄")
+        text("Menyuga yangi taom qo'shilganda:\n\n"
+             "1. '🔄 Mahsulotlarni yangilash' tugmasini bosing\n"
+             "2. Yangi mahsulotlar ko'rsatiladi\n"
+             "3. Kerakli printerni tanlab, yangi mahsulotlarni biriktiring")
+
+        # ═══ 8. TEST CHOP ETISH ═══
+        section("Test chop etish", "⚡")
+        text("Printer to'g'ri ishlayotganini tekshirish:\n\n"
+             "1. Printerlar jadvalidan printerni tanlang\n"
+             "2. '⚡ Test' tugmasini bosing\n"
+             "3. Test cheki chop etiladi\n"
+             "4. Agar chiqmasa — ulanishni tekshiring")
+
+        # ═══ 9. DRAYVER O'RNATISH ═══
+        section("Printer drayveri o'rnatish", "📦")
+        text("Agar printer topilmasa — drayver o'rnatish kerak:\n\n"
+             "1. Printeringiz modelini aniqlang\n"
+             "   (orqa tomonidagi yorliqqa qarang: XP-80C, XP-58IIH va h.k.)\n\n"
+             "2. Drayver yuklab olish:\n"
+             "   https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download\n\n"
+             "3. Yuklangan faylni ishga tushirib o'rnating\n"
+             "4. Kompyuterni qayta ishga tushiring\n"
+             "5. Dasturda '🔍 Avtomatik topish' bosing")
+
+        # ═══ 10. MUAMMOLAR VA YECHIMLAR ═══
+        section("Muammolar va yechimlar", "🔧")
+        text("❌ 'Server bilan aloqa yo'q'\n"
+             "  → Server manzilini tekshiring\n"
+             "  → Internet aloqasini tekshiring\n\n"
+             "❌ 'Printer topilmadi'\n"
+             "  → USB kabelni qayta ulang\n"
+             "  → Printerni o'chirib-yoqing\n"
+             "  → Drayver o'rnating (yuqoriga qarang)\n\n"
+             "❌ 'Chop etishda xatolik'\n"
+             "  → Printerda qog'oz borligini tekshiring\n"
+             "  → Printer yoqilganligini tekshiring\n"
+             "  → '⚡ Test' bilan tekshiring\n\n"
+             "❌ 'Login xatolik'\n"
+             "  → Login va parolni tekshiring\n"
+             "  → Admin bilan bog'laning")
+
+        # ═══ 11. ALOQA ═══
+        section("Bog'lanish", "📞")
+        text("Muammo yechilmasa admin bilan bog'laning.\n"
+             "Dastur versiyasi: v4.0\n"
+             "Ishlab chiqaruvchi: Nonbor.uz")
+
+        # Yopish
+        close_frame = tk.Frame(dlg, bg=BG, pady=8)
+        close_frame.pack(fill='x', side='bottom')
+        tk.Button(close_frame, text="Yopish", font=('Segoe UI',10,'bold'),
+                  fg='white', bg='#4f46e5', relief='flat',
+                  padx=24, pady=6, cursor='hand2',
+                  command=dlg.destroy).pack()
 
     def _add(self):
         d = PrinterDlg(self.win, local_printers(), credentials=self._creds(), all_printers=self._printers)

@@ -539,7 +539,8 @@ class PrintOrderView(APIView):
 class AgentPollView(APIView):
     """GET /api/v2/print-job/agent/poll/?business_id=
     Print Agent - pending joblarni olish.
-    Agent har 3 soniyada shu endpointga so'rov yuboradi."""
+    Agent har 3 soniyada shu endpointga so'rov yuboradi.
+    business_id=all bo'lsa — barcha bizneslarning pending joblari qaytariladi."""
     pass  # no explicit permission, uses global AllowAny
 
     def get(self, request):
@@ -550,12 +551,19 @@ class AgentPollView(APIView):
                 'error': 'business_id parametri kerak',
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Faqat pending joblar (cloud printerlar uchun)
-        jobs = PrintJob.objects.filter(
-            business_id=business_id,
-            status=PrintJob.STATUS_PENDING,
-            printer__is_active=True,
-        ).select_related('printer').order_by('created_at')
+        # business_id=all — barcha bizneslar uchun pending joblar
+        if business_id == 'all':
+            jobs = PrintJob.objects.filter(
+                status=PrintJob.STATUS_PENDING,
+                printer__is_active=True,
+            ).select_related('printer').order_by('created_at')
+        else:
+            # Faqat bitta biznes uchun pending joblar
+            jobs = PrintJob.objects.filter(
+                business_id=business_id,
+                status=PrintJob.STATUS_PENDING,
+                printer__is_active=True,
+            ).select_related('printer').order_by('created_at')
 
         result = []
         for job in jobs:
@@ -835,6 +843,71 @@ class NonborPollStopView(APIView):
             'success': True,
             'message': 'Avtomatik polling o\'chirildi',
             'result': NonborConfigSerializer(config).data,
+        })
+
+
+class NonborPollAllView(APIView):
+    """POST /api/v2/nonbor/poll-all/
+    Barcha aktiv bizneslarni bir vaqtda Nonbor API dan polling qilish.
+    Agent shu endpointni chaqiradi — har bir biznes uchun alohida poll_and_print."""
+    pass
+
+    def post(self, request):
+        # Faqat aktiv, poll_enabled va printerli bizneslar
+        from .models import Printer as PrinterModel
+        biz_with_printers = set(
+            PrinterModel.objects.filter(is_active=True)
+            .values_list('business_id', flat=True)
+            .distinct()
+        )
+
+        configs = NonborConfig.objects.filter(
+            is_active=True,
+            poll_enabled=True,
+            business_id__in=biz_with_printers,
+        )
+
+        if not configs.exists():
+            return Response({
+                'success': True,
+                'message': 'Aktiv bizneslar topilmadi',
+                'results': [],
+            })
+
+        results = []
+        total_new = 0
+        total_printed = 0
+        total_errors = 0
+
+        for config in configs:
+            try:
+                new_count, printed, errors = poll_and_print(config)
+                total_new += new_count
+                total_printed += printed
+                total_errors += errors
+                if new_count > 0:
+                    results.append({
+                        'business_id': config.business_id,
+                        'business_name': config.business_name,
+                        'new_orders': new_count,
+                        'printed': printed,
+                        'errors': errors,
+                    })
+            except Exception as e:
+                logger.error(f"Poll-all xato BIZ={config.business_id}: {e}")
+                total_errors += 1
+                results.append({
+                    'business_id': config.business_id,
+                    'business_name': config.business_name,
+                    'error': str(e),
+                })
+
+        return Response({
+            'success': True,
+            'total_new': total_new,
+            'total_printed': total_printed,
+            'total_errors': total_errors,
+            'results': results,
         })
 
 

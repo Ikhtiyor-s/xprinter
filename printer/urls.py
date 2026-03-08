@@ -91,6 +91,7 @@ urlpatterns = [
     # ============================================================
     # NONBOR POLLING (avtomatik buyurtma olish)
     # ============================================================
+    path('nonbor/poll-all/', views.NonborPollAllView.as_view(), name='nonbor-poll-all'),
     path('nonbor/poll/<int:business_id>/', views.NonborPollView.as_view(), name='nonbor-poll'),
     path('nonbor/orders/<int:business_id>/', views.NonborOrdersView.as_view(), name='nonbor-orders'),
     path('nonbor/poll-start/<int:business_id>/', views.NonborPollStartView.as_view(), name='nonbor-poll-start'),
