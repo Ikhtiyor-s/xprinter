@@ -284,16 +284,19 @@ def poll_and_print(config: NonborConfig, orders: list = None):
     for o in orders:
         state = (o.get('state') or '').upper()
         order_biz_id = (o.get('business') or {}).get('id')
-        # ACCEPTED holat + shu biznes (yoki biznes filter yo'q bo'lsa hammasi)
+        # ACCEPTED holat + FAQAT shu biznesga tegishli (strict filter)
         is_accepted = state in ('ACCEPTED', 'NEW', 'CONFIRMED')
-        is_our_biz = (order_biz_id == biz_id) or (order_biz_id is None)
+        # business ID ni int ga o'girib taqqoslash (API string qaytarishi mumkin)
+        try:
+            is_our_biz = int(order_biz_id) == int(biz_id) if order_biz_id is not None else False
+        except (ValueError, TypeError):
+            is_our_biz = False
         if is_accepted and is_our_biz:
             accepted.append(o)
 
-    # Allaqachon chop etilganlarni filter qilish
+    # Allaqachon chop etilganlarni filter qilish (BARCHA bizneslardan)
     existing_order_ids = set(
         PrintJob.objects.filter(
-            business_id=biz_id,
             order_id__in=[o['id'] for o in accepted],
         ).values_list('order_id', flat=True).distinct()
     )

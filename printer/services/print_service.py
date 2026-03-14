@@ -66,8 +66,9 @@ class ESCPOSCommands:
 class ReceiptBuilder:
     """Chop etish uchun receipt yaratuvchi"""
 
-    def __init__(self, paper_width=80):
+    def __init__(self, paper_width=80, encoding='cp866'):
         self.paper_width = paper_width
+        self.encoding = encoding  # cp866 kirill + lotin uchun, utf-8 fallback
         # 80mm = ~42 belgi, 58mm = ~32 belgi
         self.char_width = 42 if paper_width == 80 else 32
         self.commands = bytearray()
@@ -75,10 +76,13 @@ class ReceiptBuilder:
 
     def init_printer(self):
         self.commands.extend(ESCPOSCommands.INIT)
-        self.commands.extend(ESCPOSCommands.SET_CP1252)
+        if self.encoding == 'cp866':
+            self.commands.extend(ESCPOSCommands.SET_CP866)
+        else:
+            self.commands.extend(ESCPOSCommands.SET_CP1252)
         return self
 
-    def add_text(self, text, bold=False, center=False, double=False, encoding='utf-8'):
+    def add_text(self, text, bold=False, center=False, double=False, encoding=None):
         if center:
             self.commands.extend(ESCPOSCommands.ALIGN_CENTER)
         else:
@@ -89,7 +93,9 @@ class ReceiptBuilder:
         if double:
             self.commands.extend(ESCPOSCommands.FONT_DOUBLE)
 
-        self.commands.extend(text.encode(encoding, errors='replace'))
+        # Encoding: cp866 (kirill/lotin) yoki utf-8 fallback
+        enc = encoding or self.encoding
+        self.commands.extend(text.encode(enc, errors='replace'))
         self.commands.extend(b'\n')
         self.text_content.append(text)
 
@@ -103,7 +109,7 @@ class ReceiptBuilder:
     def add_line(self, char='-'):
         line = char * self.char_width
         self.commands.extend(ESCPOSCommands.ALIGN_LEFT)
-        self.commands.extend(line.encode('utf-8'))
+        self.commands.extend(line.encode(self.encoding, errors='replace'))
         self.commands.extend(b'\n')
         self.text_content.append(line)
         return self
@@ -122,7 +128,7 @@ class ReceiptBuilder:
             name = name[:name_width - 2] + '..'
         line = f"  {name:<{name_width}}{right_part}"
         self.commands.extend(ESCPOSCommands.ALIGN_LEFT)
-        self.commands.extend(line.encode('utf-8', errors='replace'))
+        self.commands.extend(line.encode(self.encoding, errors='replace'))
         self.commands.extend(b'\n')
         self.text_content.append(line)
         return self
@@ -141,7 +147,7 @@ class ReceiptBuilder:
             name = name[:name_width - 2] + '..'
         line = f"{prefix} {name:<{name_width}}{right_part}"
         self.commands.extend(ESCPOSCommands.ALIGN_LEFT)
-        self.commands.extend(line.encode('utf-8', errors='replace'))
+        self.commands.extend(line.encode(self.encoding, errors='replace'))
         self.commands.extend(b'\n')
         self.text_content.append(line)
         return self
@@ -527,17 +533,23 @@ def print_order(order_data, items, business_id):
         else:
             unassigned_items.append(item)
 
-    # Ulashilmagan taomlar - birinchi aktiv printerga yuborish
+    # Ulashilmagan taomlar - birinchi aktiv non-admin printerga yuborish
     if unassigned_items:
         default_printer = Printer.objects.filter(
             business_id=business_id,
             is_active=True,
+            is_admin=False,
         ).first()
         if default_printer:
             printer_items[default_printer.id].extend(unassigned_items)
             logger.warning(
                 f"Ulashilmagan {len(unassigned_items)} ta taom "
                 f"default printerga ({default_printer.name}) yuborildi"
+            )
+        else:
+            logger.warning(
+                f"Biznes #{business_id}: printer biriktirilmagan, "
+                f"{len(unassigned_items)} ta taom chop etilmadi"
             )
 
     # 4. Admin printerlar - barcha buyurtmalarni umumiy oladi
