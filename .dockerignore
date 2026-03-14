@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+*.sqlite3
+.git
+.gitignore
+.env
+agent/dist/
+agent/build/
+agent/*.spec
+agent/config.ini
+agent/saved_logins.json
+media/
+*.log
+.idea/
+.vscode/

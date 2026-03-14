@@ -1,0 +1,13 @@
+services:
+  xprinter:
+    build: .
+    container_name: xprinter-server
+    ports:
+      - "9090:9000"
+    volumes:
+      # Kodni mount - o'zgarishlar avtomatik ko'rinadi (hot reload)
+      - .:/app
+    restart: unless-stopped
+    environment:
+      - DJANGO_SETTINGS_MODULE=settings
+      - PYTHONUNBUFFERED=1
