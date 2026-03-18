@@ -613,12 +613,16 @@ class MainWindow:
         brow = tk.Frame(sf, bg=BG)
         brow.pack(side='left', padx=(8, 0))
         tk.Label(brow, text=" ", font=('Segoe UI', 8), bg=BG).pack()  # spacer
-        tk.Button(brow, text="💾", command=self._save_server,
+        save_btn = tk.Button(brow, text="💾", command=self._save_server,
                   bg=BG3, fg=FG, font=FONT, relief='flat',
-                  padx=8, pady=3, cursor='hand2').pack(side='left', padx=2)
-        tk.Button(brow, text="🔗 Test", command=self._test_conn,
+                  padx=8, pady=3, cursor='hand2')
+        save_btn.pack(side='left', padx=2)
+        self._add_tooltip(save_btn, "💾 Saqlash")
+        test_btn = tk.Button(brow, text="🔗 Test", command=self._test_conn,
                   bg=PURPLE, fg='white', font=FONT, relief='flat',
-                  padx=8, pady=3, cursor='hand2').pack(side='left')
+                  padx=8, pady=3, cursor='hand2')
+        test_btn.pack(side='left')
+        self._add_tooltip(test_btn, "🔗 Ulanishni tekshirish")
 
         # ── Printerlar bo'limi ──────────────────────────────
         sep = tk.Frame(self.root, bg=BG3, height=1)
@@ -699,9 +703,30 @@ class MainWindow:
                  fg=FGD, bg=BG2).pack(side='right')
 
     def _mbtn(self, parent, text, bg, cmd):
-        return tk.Button(parent, text=text, command=cmd,
-                         bg=bg, fg='white', font=('Segoe UI', 9),
-                         relief='flat', padx=10, pady=3, cursor='hand2')
+        btn = tk.Button(parent, text=text, command=cmd,
+                        bg=bg, fg='white', font=('Segoe UI', 9),
+                        relief='flat', padx=10, pady=3, cursor='hand2')
+        self._add_tooltip(btn, text)
+        return btn
+
+    def _add_tooltip(self, widget, text):
+        """Hover qilganda tooltip ko'rsatish."""
+        tip = None
+        def show(e):
+            nonlocal tip
+            tip = tk.Toplevel(widget)
+            tip.wm_overrideredirect(True)
+            tip.wm_geometry(f"+{e.x_root + 10}+{e.y_root + 10}")
+            lbl = tk.Label(tip, text=text, bg='#333333', fg='white',
+                           font=('Segoe UI', 9), padx=6, pady=3, relief='solid', bd=1)
+            lbl.pack()
+        def hide(e):
+            nonlocal tip
+            if tip:
+                tip.destroy()
+                tip = None
+        widget.bind('<Enter>', show)
+        widget.bind('<Leave>', hide)
 
     # ── VALUES ───────────────────────────────────────────────
 
