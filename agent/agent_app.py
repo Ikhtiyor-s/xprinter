@@ -43,7 +43,7 @@ def _cache_path(business_id=None):
 
 # ── SERVER URL (server_url.txt dan o'qiladi, aks holda default) ─────────
 _SERVER_URL_FILE = BASE_DIR / 'server_url.txt'
-_DEFAULT_SERVER = "http://localhost:9000"
+_DEFAULT_SERVER = "http://localhost:9090"
 def _load_server_url():
     if _SERVER_URL_FILE.exists():
         try:
@@ -143,7 +143,9 @@ def api_fetch_menu(server_url, username, password, business_id):
     """GET /api/v2/agent/menu/<business_id>/ → (ok, products, error)
     products: [{id, name, category_id, category_name}]"""
     try:
+        business_id = int(business_id) if business_id else 0
         full = f"{server_url}/api/v2/agent/menu/{business_id}/"
+        logger.info(f"Menu fetch: {full} user={username} bid={business_id}")
         params = {'username': username, 'password': password}
         if HAS_REQ:
             r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60, verify=False)
@@ -2114,8 +2116,10 @@ class SettingsWindow:
     def _creds(self):
         """Agent credentials tuple for PrinterDlg"""
         a = self.agent
-        if a.server_url and a.username and a.business_id:
+        logger.info(f"_creds check: url={a.server_url} user={a.username} bid={a.business_id!r}")
+        if a.server_url and a.username and str(a.business_id).strip():
             return (a.server_url, a.username, a.password, a.business_id)
+        logger.warning("_creds returned None!")
         return None
 
     def _auto_detect_printers(self):
