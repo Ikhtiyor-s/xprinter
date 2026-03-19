@@ -1,6 +1,7 @@
 import logging
 import time as _time
 
+from django.shortcuts import render
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -1829,3 +1830,12 @@ class NotificationTestTelegramView(APIView):
             'success': sent,
             'message': 'Xabar yuborildi' if sent else "Xabar yuborib bo'lmadi",
         })
+
+
+# ============================================================
+# AGENT WEB DASHBOARD
+# ============================================================
+
+def agent_dashboard(request):
+    """Web-based Print Agent dashboard — Android va kompyuterda ishlaydi"""
+    return render(request, 'agent_dashboard.html')

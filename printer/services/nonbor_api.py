@@ -113,7 +113,7 @@ def parse_nonbor_order(order_raw, business_id):
         category_id = cat.get('id') or it.get('category_id')
         category_name = cat.get('name') or it.get('category_name', '')
 
-        item_price = float(price) / 100 if price > 100000 else float(price)
+        item_price = float(price) / 100
 
         # Qo'shimcha mahsulotlar (modifiers/additions)
         # Nonbor API da "additions", "modifiers", "extras", "add_ons" bo'lishi mumkin
@@ -134,7 +134,7 @@ def parse_nonbor_order(order_raw, business_id):
             )
             mod_qty = mod.get('count') or mod.get('quantity', 1)
             mod_price = mod.get('price', 0)
-            mod_price_f = float(mod_price) / 100 if mod_price > 100000 else float(mod_price)
+            mod_price_f = float(mod_price) / 100
             if mod_name:
                 modifiers.append({
                     'name': mod_name,
@@ -238,9 +238,10 @@ def fetch_all_orders(api_url: str, api_secret: str) -> list:
         'accept': 'application/json',
         'Content-Type': 'application/json',
         'X-Telegram-Bot-Secret': api_secret,
+        'User-Agent': 'NonborPrintAgent/1.0',
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(url, headers=headers, timeout=10, verify=False)
         if resp.status_code == 200:
             data = resp.json()
             if not data or not data.get('success'):
@@ -278,21 +279,36 @@ def poll_and_print(config: NonborConfig, orders: list = None):
         config.save(update_fields=['last_poll_at'])
         return 0, 0, 0
 
-    # Faqat shu biznesning ACCEPTED buyurtmalari
+    # Faqat shu biznesning ACCEPTED buyurtmalari — QATTIQ filtrlash
     biz_id = config.business_id
+    config_name = (config.business_name or '').strip().lower().rstrip('.').rstrip()
     accepted = []
     for o in orders:
         state = (o.get('state') or '').upper()
-        order_biz_id = (o.get('business') or {}).get('id')
-        # ACCEPTED holat + FAQAT shu biznesga tegishli (strict filter)
-        is_accepted = state in ('ACCEPTED', 'NEW', 'CONFIRMED')
-        # business ID ni int ga o'girib taqqoslash (API string qaytarishi mumkin)
-        try:
-            is_our_biz = int(order_biz_id) == int(biz_id) if order_biz_id is not None else False
-        except (ValueError, TypeError):
-            is_our_biz = False
-        if is_accepted and is_our_biz:
-            accepted.append(o)
+        if state != 'ACCEPTED':
+            continue
+
+        order_biz = o.get('business') or {}
+        order_biz_id = order_biz.get('id')
+        order_biz_name = (order_biz.get('title') or '').strip().lower().rstrip('.').rstrip()
+
+        # 1) business ID bo'yicha (aniq)
+        is_our_biz = False
+        if order_biz_id is not None:
+            try:
+                is_our_biz = int(order_biz_id) == int(biz_id)
+            except (ValueError, TypeError):
+                pass
+
+        # 2) ID yo'q bo'lsa, FAQAT aynan nom bo'yicha (startswith EMAS!)
+        if not is_our_biz and order_biz_name and config_name:
+            is_our_biz = order_biz_name == config_name
+
+        if not is_our_biz:
+            logger.debug(f"Buyurtma #{o.get('id')} SKIP: biz='{order_biz_name}' != config='{config_name}'")
+            continue
+
+        accepted.append(o)
 
     # Allaqachon chop etilganlarni filter qilish (BARCHA bizneslardan)
     existing_order_ids = set(

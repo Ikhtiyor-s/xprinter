@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="uz" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Nonbor Print Agent</title>
+<style>
+:root {
+  --bg: #f5f5f5; --bg2: #ffffff; --bg3: #e8e8e8;
+  --text: #1a1a1a; --text2: #666; --text3: #999;
+  --primary: #4361ee; --primary-hover: #3a56d4;
+  --success: #2ecc71; --danger: #e74c3c; --warning: #f39c12;
+  --border: #e0e0e0; --shadow: rgba(0,0,0,0.08);
+  --radius: 12px;
+}
+[data-theme="dark"] {
+  --bg: #1a1a2e; --bg2: #16213e; --bg3: #0f3460;
+  --text: #eaeaea; --text2: #aaa; --text3: #777;
+  --primary: #4361ee; --primary-hover: #5a75f0;
+  --success: #2ecc71; --danger: #e74c3c; --warning: #f39c12;
+  --border: #2a2a4a; --shadow: rgba(0,0,0,0.3);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; transition: background .3s, color .3s;
+}
+.app { max-width: 480px; margin: 0 auto; padding: 0; min-height: 100vh; }
+
+/* Header */
+.header {
+  background: var(--primary); color: #fff; padding: 16px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 100;
+}
+.header h1 { font-size: 18px; font-weight: 600; }
+.header-actions { display: flex; gap: 8px; }
+.header-btn {
+  background: rgba(255,255,255,0.2); border: none; color: #fff;
+  width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; transition: background .2s;
+}
+.header-btn:hover { background: rgba(255,255,255,0.3); }
+
+/* Status bar */
+.status-bar {
+  padding: 12px 20px; display: flex; align-items: center; gap: 10px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.status-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+.status-dot.online { background: var(--success); }
+.status-dot.offline { background: var(--danger); animation: none; }
+.status-dot.connecting { background: var(--warning); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; } 50% { opacity: 0.5; }
+}
+.status-text { font-size: 14px; color: var(--text2); }
+.status-text strong { color: var(--text); }
+
+/* Cards */
+.card {
+  background: var(--bg2); margin: 12px 16px; border-radius: var(--radius);
+  box-shadow: 0 2px 8px var(--shadow); overflow: hidden;
+}
+.card-header {
+  padding: 14px 16px; font-weight: 600; font-size: 15px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.card-body { padding: 16px; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.stat {
+  text-align: center; padding: 12px 8px;
+  background: var(--bg); border-radius: 8px;
+}
+.stat-value { font-size: 24px; font-weight: 700; color: var(--primary); }
+.stat-label { font-size: 11px; color: var(--text2); margin-top: 4px; }
+
+/* Printer list */
+.printer-item {
+  display: flex; align-items: center; padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.printer-item:last-child { border-bottom: none; }
+.printer-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: var(--bg); display: flex; align-items: center;
+  justify-content: center; font-size: 20px; margin-right: 12px; flex-shrink: 0;
+}
+.printer-info { flex: 1; min-width: 0; }
+.printer-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.printer-detail { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.printer-status {
+  font-size: 11px; padding: 3px 8px; border-radius: 12px; font-weight: 500; flex-shrink: 0;
+}
+.printer-status.active { background: #d4edda; color: #155724; }
+[data-theme="dark"] .printer-status.active { background: #1a4a2a; color: #2ecc71; }
+.printer-status.inactive { background: #f8d7da; color: #721c24; }
+[data-theme="dark"] .printer-status.inactive { background: #4a1a1a; color: #e74c3c; }
+
+/* Log */
+.log-list { max-height: 300px; overflow-y: auto; }
+.log-item { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.log-item:last-child { border-bottom: none; }
+.log-time { color: var(--text3); font-size: 11px; }
+.log-msg { margin-top: 2px; }
+.log-msg.success { color: var(--success); }
+.log-msg.error { color: var(--danger); }
+.log-msg.info { color: var(--text2); }
+.log-empty { text-align: center; color: var(--text3); padding: 20px; }
+
+/* Bottom nav */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--bg2); border-top: 1px solid var(--border);
+  display: flex; z-index: 100; max-width: 480px; margin: 0 auto;
+}
+.nav-item {
+  flex: 1; padding: 8px 0; text-align: center; cursor: pointer;
+  color: var(--text3); transition: color .2s; border: none; background: none;
+  font-size: 10px;
+}
+.nav-item.active { color: var(--primary); }
+.nav-item-icon { font-size: 22px; display: block; margin-bottom: 2px; }
+
+/* Pages */
+.page { display: none; padding-bottom: 70px; }
+.page.active { display: block; }
+
+/* Settings form */
+.form-group { margin-bottom: 16px; }
+.form-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; display: block; color: var(--text2); }
+.form-input {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 15px; background: var(--bg);
+  color: var(--text); outline: none; transition: border .2s;
+}
+.form-input:focus { border-color: var(--primary); }
+.form-hint { font-size: 11px; color: var(--text3); margin-top: 4px; }
+
+/* Buttons */
+.btn {
+  width: 100%; padding: 14px; border: none; border-radius: 8px;
+  font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-success { background: var(--success); color: #fff; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-outline {
+  background: transparent; border: 1px solid var(--border); color: var(--text);
+}
+.btn + .btn { margin-top: 10px; }
+
+/* Toggle */
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 0; border-bottom: 1px solid var(--border);
+}
+.toggle-row:last-child { border-bottom: none; }
+.toggle-label { font-size: 14px; }
+.toggle-sub { font-size: 12px; color: var(--text2); }
+.toggle {
+  width: 50px; height: 28px; border-radius: 14px; background: var(--bg3);
+  position: relative; cursor: pointer; transition: background .3s; border: none;
+}
+.toggle.on { background: var(--primary); }
+.toggle::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 22px; height: 22px; border-radius: 50%; background: #fff;
+  transition: transform .3s; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle.on::after { transform: translateX(22px); }
+
+/* Connection test */
+.test-result {
+  margin-top: 12px; padding: 12px; border-radius: 8px;
+  font-size: 13px; display: none;
+}
+.test-result.ok { display: block; background: #d4edda; color: #155724; }
+.test-result.fail { display: block; background: #f8d7da; color: #721c24; }
+[data-theme="dark"] .test-result.ok { background: #1a4a2a; color: #2ecc71; }
+[data-theme="dark"] .test-result.fail { background: #4a1a1a; color: #e74c3c; }
+
+/* Big start button */
+.start-section { text-align: center; padding: 20px 16px; }
+.start-btn {
+  width: 120px; height: 120px; border-radius: 50%; border: none;
+  font-size: 16px; font-weight: 700; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-direction: column; transition: all .3s; box-shadow: 0 4px 15px var(--shadow);
+}
+.start-btn.stopped { background: var(--success); color: #fff; }
+.start-btn.running { background: var(--danger); color: #fff; }
+.start-btn-icon { font-size: 32px; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <div class="header">
+    <h1>Nonbor Print Agent</h1>
+    <div class="header-actions">
+      <button class="header-btn" onclick="toggleTheme()" id="themeBtn" title="Tema">&#9790;</button>
+      <button class="header-btn" onclick="location.reload()" title="Yangilash">&#8635;</button>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <div class="status-text" id="statusText">Tekshirilmoqda...</div>
+  </div>
+
+  <!-- PAGE: Home -->
+  <div class="page active" id="page-home">
+    <!-- Start/Stop -->
+    <div class="start-section">
+      <button class="start-btn stopped" id="startBtn" onclick="togglePolling()">
+        <span class="start-btn-icon" id="startIcon">&#9654;</span>
+        <span id="startLabel">BOSHLASH</span>
+      </button>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+      <div class="card-header">&#128202; Statistika</div>
+      <div class="card-body">
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-label">Jami</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="statDone">0</div>
+            <div class="stat-label">Bajarildi</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="statFailed">0</div>
+            <div class="stat-label">Xatolik</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <div class="card-header">&#128196; Jurnal</div>
+      <div class="card-body">
+        <div class="log-list" id="logList">
+          <div class="log-empty">Hozircha yozuvlar yo'q</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: Printers -->
+  <div class="page" id="page-printers">
+    <div class="card">
+      <div class="card-header">&#128424; Printerlar</div>
+      <div class="card-body" id="printerList">
+        <div class="log-empty">Yuklanmoqda...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: Settings -->
+  <div class="page" id="page-settings">
+    <div class="card">
+      <div class="card-header">&#9881; API Sozlamalari</div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Server URL</label>
+          <input class="form-input" id="cfgUrl" placeholder="http://192.168.0.109:9090">
+          <div class="form-hint">Xprinter server manzili</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Business ID</label>
+          <input class="form-input" id="cfgBizId" type="number" placeholder="24">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Login</label>
+          <input class="form-input" id="cfgUser" placeholder="admin">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Parol</label>
+          <input class="form-input" id="cfgPass" type="password" placeholder="******">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Polling interval (soniya)</label>
+          <input class="form-input" id="cfgInterval" type="number" value="3" min="1" max="30">
+        </div>
+        <button class="btn btn-primary" onclick="saveSettings()">Saqlash</button>
+        <button class="btn btn-outline" onclick="testConnection()">Ulanishni tekshirish</button>
+        <div class="test-result" id="testResult"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">&#127912; Interfeys</div>
+      <div class="card-body">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Qorong'u rejim</div>
+            <div class="toggle-sub">Dark mode</div>
+          </div>
+          <button class="toggle" id="darkToggle" onclick="toggleTheme()"></button>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Ovoz bildirishnomasi</div>
+            <div class="toggle-sub">Yangi buyurtmada signal</div>
+          </div>
+          <button class="toggle" id="soundToggle" onclick="toggleSound()"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div style="text-align:center; color:var(--text3); font-size:12px;">
+          Nonbor Print Agent v5.0 (Web)<br>
+          &copy; 2024 Nonbor
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Nav -->
+  <div class="bottom-nav">
+    <button class="nav-item active" onclick="showPage('home')" id="nav-home">
+      <span class="nav-item-icon">&#127968;</span> Bosh sahifa
+    </button>
+    <button class="nav-item" onclick="showPage('printers')" id="nav-printers">
+      <span class="nav-item-icon">&#128424;</span> Printerlar
+    </button>
+    <button class="nav-item" onclick="showPage('settings')" id="nav-settings">
+      <span class="nav-item-icon">&#9881;</span> Sozlamalar
+    </button>
+  </div>
+</div>
+
+<script>
+// ── State ──
+const STATE = {
+  polling: false,
+  pollTimer: null,
+  logs: [],
+  stats: { total: 0, done: 0, failed: 0 },
+  sound: localStorage.getItem('agent_sound') !== 'off',
+};
+
+// ── Settings ──
+function loadSettings() {
+  const def = {
+    url: location.origin,
+    bizId: '',
+    user: '',
+    pass: '',
+    interval: 3
+  };
+  try {
+    const s = JSON.parse(localStorage.getItem('agent_settings') || '{}');
+    return { ...def, ...s };
+  } catch { return def; }
+}
+
+function applySettingsToForm() {
+  const s = loadSettings();
+  document.getElementById('cfgUrl').value = s.url;
+  document.getElementById('cfgBizId').value = s.bizId;
+  document.getElementById('cfgUser').value = s.user;
+  document.getElementById('cfgPass').value = s.pass;
+  document.getElementById('cfgInterval').value = s.interval;
+}
+
+function saveSettings() {
+  const s = {
+    url: document.getElementById('cfgUrl').value.replace(/\/+$/, '') || location.origin,
+    bizId: document.getElementById('cfgBizId').value,
+    user: document.getElementById('cfgUser').value,
+    pass: document.getElementById('cfgPass').value,
+    interval: parseInt(document.getElementById('cfgInterval').value) || 3,
+  };
+  localStorage.setItem('agent_settings', JSON.stringify(s));
+  addLog('Sozlamalar saqlandi', 'success');
+  checkServerStatus();
+}
+
+// ── API helper ──
+function apiUrl(path) {
+  const s = loadSettings();
+  return s.url + '/api/v2/' + path;
+}
+
+function apiHeaders() {
+  const s = loadSettings();
+  const h = { 'Content-Type': 'application/json' };
+  if (s.user && s.pass) {
+    h['Authorization'] = 'Basic ' + btoa(s.user + ':' + s.pass);
+  }
+  return h;
+}
+
+// ── Connection test ──
+async function testConnection() {
+  const el = document.getElementById('testResult');
+  el.className = 'test-result'; el.style.display = 'none';
+  const s = loadSettings();
+  try {
+    const r = await fetch(s.url + '/api/v2/agent/auth/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: s.user, password: s.pass }),
+    });
+    const d = await r.json();
+    if (d.success) {
+      el.className = 'test-result ok';
+      el.textContent = 'Ulandi! Biznes: ' + d.business_name + ' (ID: ' + d.business_id + ')';
+      el.style.display = 'block';
+      // Auto-fill business ID
+      if (d.business_id && !s.bizId) {
+        document.getElementById('cfgBizId').value = d.business_id;
+      }
+    } else {
+      el.className = 'test-result fail';
+      el.textContent = 'Autentifikatsiya xatosi';
+      el.style.display = 'block';
+    }
+  } catch (e) {
+    el.className = 'test-result fail';
+    el.textContent = 'Server bilan aloqa yo\'q: ' + e.message;
+    el.style.display = 'block';
+  }
+}
+
+// ── Server status ──
+async function checkServerStatus() {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  const s = loadSettings();
+  try {
+    dot.className = 'status-dot connecting';
+    txt.innerHTML = 'Tekshirilmoqda...';
+    const r = await fetch(s.url + '/api/v2/agent/auth/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: s.user, password: s.pass }),
+    });
+    const d = await r.json();
+    if (d.success) {
+      dot.className = 'status-dot online';
+      txt.innerHTML = '<strong>' + d.business_name + '</strong> &mdash; ulangan';
+    } else {
+      dot.className = 'status-dot offline';
+      txt.textContent = 'Autentifikatsiya xatosi';
+    }
+  } catch {
+    dot.className = 'status-dot offline';
+    txt.textContent = 'Server bilan aloqa yo\'q';
+  }
+}
+
+// ── Polling ──
+function togglePolling() {
+  if (STATE.polling) stopPolling(); else startPolling();
+}
+
+function startPolling() {
+  const s = loadSettings();
+  if (!s.bizId) {
+    addLog('Business ID kiritilmagan! Sozlamalarga o\'ting.', 'error');
+    showPage('settings');
+    return;
+  }
+  STATE.polling = true;
+  updateStartBtn();
+  addLog('Polling boshlandi (har ' + s.interval + 's)', 'info');
+  pollOnce();
+  STATE.pollTimer = setInterval(pollOnce, s.interval * 1000);
+}
+
+function stopPolling() {
+  STATE.polling = false;
+  clearInterval(STATE.pollTimer);
+  updateStartBtn();
+  addLog('Polling to\'xtatildi', 'info');
+}
+
+function updateStartBtn() {
+  const btn = document.getElementById('startBtn');
+  const icon = document.getElementById('startIcon');
+  const label = document.getElementById('startLabel');
+  if (STATE.polling) {
+    btn.className = 'start-btn running';
+    icon.innerHTML = '&#9724;';
+    label.textContent = 'TO\'XTATISH';
+  } else {
+    btn.className = 'start-btn stopped';
+    icon.innerHTML = '&#9654;';
+    label.textContent = 'BOSHLASH';
+  }
+}
+
+async function pollOnce() {
+  const s = loadSettings();
+  try {
+    const r = await fetch(apiUrl('print-job/agent/poll/?business_id=' + s.bizId), {
+      headers: apiHeaders(),
+    });
+    const d = await r.json();
+    if (d.success && d.result && d.result.length > 0) {
+      const jobs = d.result;
+      addLog(jobs.length + ' ta yangi vazifa topildi', 'success');
+      STATE.stats.total += jobs.length;
+      if (STATE.sound) playBeep();
+
+      for (const job of jobs) {
+        try {
+          addLog('Chop etilmoqda: Buyurtma #' + (job.order_id || job.id), 'info');
+          // Report completion
+          await fetch(apiUrl('print-job/agent/complete/'), {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify({ job_id: job.id, status: 'completed' }),
+          });
+          STATE.stats.done++;
+          addLog('Bajarildi: Buyurtma #' + (job.order_id || job.id), 'success');
+        } catch (e) {
+          STATE.stats.failed++;
+          addLog('Xatolik: ' + e.message, 'error');
+          await fetch(apiUrl('print-job/agent/complete/'), {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify({ job_id: job.id, status: 'failed', error: e.message }),
+          }).catch(() => {});
+        }
+      }
+      updateStats();
+    }
+  } catch (e) {
+    addLog('Polling xatosi: ' + e.message, 'error');
+  }
+}
+
+// ── Printers ──
+async function loadPrinters() {
+  const el = document.getElementById('printerList');
+  const s = loadSettings();
+  try {
+    const r = await fetch(apiUrl('printer/list/?business_id=' + (s.bizId || '')), {
+      headers: apiHeaders(),
+    });
+    const d = await r.json();
+    const printers = d.result || d.results || [];
+    if (!printers.length) {
+      el.innerHTML = '<div class="log-empty">Printerlar topilmadi</div>';
+      return;
+    }
+    el.innerHTML = printers.map(p => `
+      <div class="printer-item">
+        <div class="printer-icon">&#128424;</div>
+        <div class="printer-info">
+          <div class="printer-name">${esc(p.name)}</div>
+          <div class="printer-detail">${esc(p.connection_type || 'USB')} ${p.ip_address ? '&bull; ' + esc(p.ip_address) : ''} &bull; ${p.paper_width || 80}mm</div>
+        </div>
+        <span class="printer-status ${p.is_active ? 'active' : 'inactive'}">${p.is_active ? 'Faol' : 'O\'chiq'}</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = '<div class="log-empty">Xatolik: ' + esc(e.message) + '</div>';
+  }
+}
+
+// ── Logs ──
+function addLog(msg, type) {
+  const now = new Date();
+  const time = now.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  STATE.logs.unshift({ time, msg, type });
+  if (STATE.logs.length > 50) STATE.logs.pop();
+  renderLogs();
+}
+
+function renderLogs() {
+  const el = document.getElementById('logList');
+  if (!STATE.logs.length) {
+    el.innerHTML = '<div class="log-empty">Hozircha yozuvlar yo\'q</div>';
+    return;
+  }
+  el.innerHTML = STATE.logs.map(l =>
+    `<div class="log-item"><div class="log-time">${l.time}</div><div class="log-msg ${l.type}">${esc(l.msg)}</div></div>`
+  ).join('');
+}
+
+function updateStats() {
+  document.getElementById('statTotal').textContent = STATE.stats.total;
+  document.getElementById('statDone').textContent = STATE.stats.done;
+  document.getElementById('statFailed').textContent = STATE.stats.failed;
+}
+
+// ── Navigation ──
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.getElementById('nav-' + name).classList.add('active');
+  if (name === 'printers') loadPrinters();
+  if (name === 'settings') applySettingsToForm();
+}
+
+// ── Theme ──
+function toggleTheme() {
+  const html = document.documentElement;
+  const dark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', dark ? 'light' : 'dark');
+  localStorage.setItem('agent_theme', dark ? 'light' : 'dark');
+  document.getElementById('darkToggle').className = 'toggle' + (dark ? '' : ' on');
+  document.getElementById('themeBtn').innerHTML = dark ? '&#9790;' : '&#9728;';
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('agent_theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+  document.getElementById('darkToggle').className = 'toggle' + (saved === 'dark' ? ' on' : '');
+  document.getElementById('themeBtn').innerHTML = saved === 'dark' ? '&#9728;' : '&#9790;';
+}
+
+// ── Sound ──
+function toggleSound() {
+  STATE.sound = !STATE.sound;
+  localStorage.setItem('agent_sound', STATE.sound ? 'on' : 'off');
+  document.getElementById('soundToggle').className = 'toggle' + (STATE.sound ? ' on' : '');
+}
+
+function initSound() {
+  document.getElementById('soundToggle').className = 'toggle' + (STATE.sound ? ' on' : '');
+}
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 800;
+    gain.gain.value = 0.3;
+    osc.start(); osc.stop(ctx.currentTime + 0.2);
+  } catch {}
+}
+
+// ── Utils ──
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// ── Init ──
+initTheme();
+initSound();
+applySettingsToForm();
+checkServerStatus();
+</script>
+</body>
+</html>
