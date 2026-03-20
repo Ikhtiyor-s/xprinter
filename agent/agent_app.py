@@ -41,21 +41,8 @@ def _cache_path(business_id=None):
         return BASE_DIR / f'products_cache_{business_id}.json'
     return PRODUCTS_CACHE
 
-# ── SERVER URL (server_url.txt dan o'qiladi, aks holda default) ─────────
-_SERVER_URL_FILE = BASE_DIR / 'server_url.txt'
-_DEFAULT_SERVER = "http://localhost:9090"
-def _load_server_url():
-    if _SERVER_URL_FILE.exists():
-        try:
-            url = _SERVER_URL_FILE.read_text(encoding='utf-8').strip()
-            if url: return url.rstrip('/')
-        except: pass
-    try:
-        _SERVER_URL_FILE.write_text(_DEFAULT_SERVER, encoding='utf-8')
-    except: pass
-    return _DEFAULT_SERVER
-
-SERVER_URL = _load_server_url()
+# ── SERVER URL ─────────
+SERVER_URL = "http://localhost:9090"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
