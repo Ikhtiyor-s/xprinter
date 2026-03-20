@@ -5,7 +5,7 @@ Buyurtmalarni avtomatik olib, printerlarga yuboradi.
 import logging
 import requests
 from django.utils import timezone
-from ..models import NonborConfig, PrintJob
+from ..models import NonborConfig, PrintJob, OrderService
 
 logger = logging.getLogger(__name__)
 
@@ -348,5 +348,191 @@ def poll_and_print(config: NonborConfig, orders: list = None):
 
     config.last_poll_at = timezone.now()
     config.save(update_fields=['last_poll_at'])
+
+    return new_count, printed, errors
+
+
+# =============================================================================
+# UNIVERSAL ORDER SERVICE POLLING
+# Telegram bot, Yandex, Uzum, Express24, iiko va boshqa tizimlardan
+# buyurtma olish uchun umumiy funksiya
+# =============================================================================
+
+def parse_generic_order(order_raw, business_id, service_type='custom'):
+    """Har qanday tashqi tizimdan kelgan buyurtmani standart formatga keltirish.
+
+    Kutilgan format (minimal):
+    {
+        "id": 123,                    # buyurtma ID
+        "items": [                    # mahsulotlar
+            {"name": "...", "quantity": 1, "price": 15000, "category_id": null, "product_id": null}
+        ],
+        "customer_name": "...",       # mijoz ismi (ixtiyoriy)
+        "customer_phone": "...",      # telefon (ixtiyoriy)
+        "delivery_type": "delivery",  # delivery/pickup/dine_in (ixtiyoriy)
+        "comment": "",                # izoh (ixtiyoriy)
+        "total_amount": 0,            # jami summa (ixtiyoriy)
+        "address": "",                # manzil (ixtiyoriy)
+        "payment_type": "",           # naqd/karta (ixtiyoriy)
+    }
+    """
+    order_id = order_raw.get('id') or order_raw.get('order_id') or 0
+
+    # Items parsing — turli formatlarni qo'llab-quvvatlash
+    raw_items = order_raw.get('items') or order_raw.get('products') or order_raw.get('order_items') or []
+    items = []
+    for item in raw_items:
+        items.append({
+            'name': item.get('name') or item.get('product_name') or item.get('title') or 'Noma\'lum',
+            'quantity': int(item.get('quantity') or item.get('count') or item.get('qty') or 1),
+            'price': float(item.get('price') or item.get('amount') or item.get('unit_price') or 0),
+            'category_id': item.get('category_id') or item.get('cat_id'),
+            'product_id': item.get('product_id') or item.get('prod_id'),
+            'modifiers': item.get('modifiers') or item.get('options') or [],
+        })
+
+    order_data = {
+        'id': order_id,
+        'order_number': str(order_raw.get('order_number') or order_raw.get('number') or order_id),
+        'customer_name': order_raw.get('customer_name') or order_raw.get('client_name') or order_raw.get('name') or '',
+        'customer_phone': order_raw.get('customer_phone') or order_raw.get('phone') or '',
+        'delivery_type': order_raw.get('delivery_type') or order_raw.get('type') or 'delivery',
+        'comment': order_raw.get('comment') or order_raw.get('note') or order_raw.get('notes') or '',
+        'total_amount': float(order_raw.get('total_amount') or order_raw.get('total') or order_raw.get('amount') or 0),
+        'address': order_raw.get('address') or order_raw.get('delivery_address') or '',
+        'payment_type': order_raw.get('payment_type') or order_raw.get('payment_method') or '',
+        'service_type': service_type,
+        'business_id': business_id,
+    }
+
+    return order_data, items
+
+
+def poll_and_print_service(service: OrderService):
+    """OrderService orqali tashqi tizimdan buyurtmalarni olish va chop etish.
+
+    Telegram bot, Yandex, Uzum va boshqa tizimlar uchun ishlaydi.
+    API dan buyurtmalar ro'yxatini oladi, parse qiladi, printerlarga yuboradi.
+
+    API javob formati (kutiladi):
+    {
+        "success": true,
+        "orders": [
+            {"id": 1, "items": [...], "customer_name": "...", ...}
+        ]
+    }
+    yoki shunchaki list:
+    [{"id": 1, "items": [...], ...}, ...]
+
+    Returns: (new_orders_count, printed_count, errors_count)
+    """
+    from .print_service import print_order
+
+    if not service.api_url:
+        return 0, 0, 0
+
+    # Service type aniqlash (template slug yoki service_name dan)
+    service_type = 'custom'
+    if service.template:
+        service_type = service.template.slug or service.template.name.lower().replace(' ', '_')
+    elif service.service_name:
+        sn = service.service_name.lower()
+        for known in ['nonbor', 'telegram', 'yandex', 'uzum', 'express24', 'iiko', 'rkeeper']:
+            if known in sn:
+                service_type = known
+                break
+
+    # API dan buyurtmalarni olish
+    headers = {
+        'accept': 'application/json',
+        'Content-Type': 'application/json',
+    }
+    if service.api_secret:
+        headers['Authorization'] = f'Bearer {service.api_secret}'
+        headers['X-API-Key'] = service.api_secret
+        headers['X-Telegram-Bot-Secret'] = service.api_secret
+    if service.bot_token:
+        headers['X-Bot-Token'] = service.bot_token
+
+    try:
+        resp = requests.get(
+            service.api_url.rstrip('/'),
+            headers=headers,
+            params={'business_id': service.business_id, 'status': 'ACCEPTED'},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            logger.error(f"OrderService #{service.id} API xato: {resp.status_code}")
+            return 0, 0, 0
+
+        data = resp.json()
+    except Exception as e:
+        logger.error(f"OrderService #{service.id} so'rov xato: {e}")
+        return 0, 0, 0
+
+    # Response dan buyurtmalar ro'yxatini ajratish
+    if isinstance(data, list):
+        orders = data
+    elif isinstance(data, dict):
+        orders = (
+            data.get('orders') or data.get('results') or
+            data.get('result', {}).get('results') if isinstance(data.get('result'), dict) else None
+        ) or data.get('data') or []
+    else:
+        orders = []
+
+    if not orders:
+        service.last_poll_at = timezone.now()
+        service.save(update_fields=['last_poll_at'])
+        return 0, 0, 0
+
+    # Dublikat tekshiruvi — service_type + order_id bo'yicha
+    order_ids = [o.get('id') or o.get('order_id') or 0 for o in orders]
+    existing = set(
+        PrintJob.objects.filter(
+            service_type=service_type,
+            order_id__in=order_ids,
+            business_id=service.business_id,
+        ).values_list('order_id', flat=True).distinct()
+    )
+
+    new_orders = [o for o in orders if (o.get('id') or o.get('order_id') or 0) not in existing]
+
+    new_count = len(new_orders)
+    printed = 0
+    errors = 0
+
+    for order_raw in new_orders:
+        try:
+            order_data, items = parse_generic_order(order_raw, service.business_id, service_type)
+            if not items:
+                logger.warning(f"OrderService #{service.id} buyurtma #{order_raw.get('id')} - items bo'sh")
+                continue
+
+            jobs = print_order(
+                order_data=order_data,
+                items=items,
+                business_id=service.business_id,
+            )
+            # service_type ni har bir jobga yozish
+            for j in jobs:
+                if j.service_type == 'nonbor':  # default edi
+                    j.service_type = service_type
+                    j.external_order_id = str(order_raw.get('id') or order_raw.get('order_id') or '')
+                    j.save(update_fields=['service_type', 'external_order_id'])
+
+            completed = sum(1 for j in jobs if j.status in ('completed', 'pending'))
+            if completed:
+                printed += 1
+            logger.info(
+                f"[{service_type}] #{order_raw.get('id')} -> {len(jobs)} printer, "
+                f"{completed} muvaffaqiyatli"
+            )
+        except Exception as e:
+            errors += 1
+            logger.error(f"[{service_type}] buyurtma #{order_raw.get('id')} xato: {e}")
+
+    service.last_poll_at = timezone.now()
+    service.save(update_fields=['last_poll_at'])
 
     return new_count, printed, errors

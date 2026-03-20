@@ -868,18 +868,12 @@ class NonborPollAllView(APIView):
             business_id__in=biz_with_printers,
         )
 
-        if not configs.exists():
-            return Response({
-                'success': True,
-                'message': 'Aktiv bizneslar topilmadi',
-                'results': [],
-            })
-
         results = []
         total_new = 0
         total_printed = 0
         total_errors = 0
 
+        # 1) Nonbor API dan polling (mavjud logika)
         for config in configs:
             try:
                 new_count, printed, errors = poll_and_print(config)
@@ -890,6 +884,7 @@ class NonborPollAllView(APIView):
                     results.append({
                         'business_id': config.business_id,
                         'business_name': config.business_name,
+                        'source': 'nonbor',
                         'new_orders': new_count,
                         'printed': printed,
                         'errors': errors,
@@ -900,8 +895,51 @@ class NonborPollAllView(APIView):
                 results.append({
                     'business_id': config.business_id,
                     'business_name': config.business_name,
+                    'source': 'nonbor',
                     'error': str(e),
                 })
+
+        # 2) Tashqi tizimlardan polling (Telegram, Yandex, Uzum, Express24, iiko va h.k.)
+        from .services.nonbor_api import poll_and_print_service
+        from .models import OrderService as OrderServiceModel
+
+        ext_services = OrderServiceModel.objects.filter(
+            is_active=True,
+            poll_enabled=True,
+            business_id__in=biz_with_printers,
+        ).exclude(api_url='')
+
+        for svc in ext_services:
+            try:
+                new_count, printed, errors = poll_and_print_service(svc)
+                total_new += new_count
+                total_printed += printed
+                total_errors += errors
+                if new_count > 0:
+                    results.append({
+                        'business_id': svc.business_id,
+                        'business_name': svc.business_name,
+                        'source': svc.service_name,
+                        'new_orders': new_count,
+                        'printed': printed,
+                        'errors': errors,
+                    })
+            except Exception as e:
+                logger.error(f"Poll-all OrderService #{svc.id} xato: {e}")
+                total_errors += 1
+                results.append({
+                    'business_id': svc.business_id,
+                    'business_name': svc.business_name,
+                    'source': svc.service_name,
+                    'error': str(e),
+                })
+
+        if not results and not configs.exists() and not ext_services.exists():
+            return Response({
+                'success': True,
+                'message': 'Aktiv bizneslar topilmadi',
+                'results': [],
+            })
 
         return Response({
             'success': True,
