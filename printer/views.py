@@ -1,4 +1,5 @@
 import logging
+import os
 import time as _time
 
 from django.shortcuts import render
@@ -958,9 +959,9 @@ class PrintWebhookView(APIView):
     def post(self, request):
         # Webhook secret tekshirish
         webhook_secret = request.headers.get('X-Webhook-Secret', '')
-        # TODO: settings.py dan PRINTER_WEBHOOK_SECRET bilan solishtirish
-        # if webhook_secret != settings.PRINTER_WEBHOOK_SECRET:
-        #     return Response({'error': 'Invalid secret'}, status=403)
+        expected = os.environ.get('WEBHOOK_SECRET', 'nonbor-webhook-secret')
+        if webhook_secret != expected:
+            return Response({'error': 'Invalid webhook secret'}, status=403)
 
         serializer = WebhookSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1039,11 +1040,17 @@ class PrintWebhookView(APIView):
         })
 
 
+from rest_framework.throttling import AnonRateThrottle
+
+class AuthRateThrottle(AnonRateThrottle):
+    rate = '5/minute'
+
 class AgentAuthView(APIView):
     """POST /api/v2/agent/auth/
     Print Agent uchun autentifikatsiya.
     Admin har bir biznesga alohida login/parol beradi.
     {username, password} → {business_id, business_name}"""
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         username = request.data.get('username', '').strip()
@@ -1447,8 +1454,8 @@ def _order_service_dict(s):
         'business_name': s.business_name,
         'service_name': s.service_name,
         'api_url': s.api_url,
-        'api_secret': s.api_secret,
-        'bot_token': s.bot_token,
+        'api_secret': s.api_secret[:4] + '****' if len(s.api_secret) > 4 else '****',
+        'bot_token': s.bot_token[:8] + '****' if len(s.bot_token) > 8 else '****',
         'poll_enabled': s.poll_enabled,
         'poll_interval': s.poll_interval,
         'last_poll_at': s.last_poll_at.isoformat() if s.last_poll_at else None,

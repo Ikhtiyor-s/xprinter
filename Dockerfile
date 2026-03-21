@@ -22,6 +22,10 @@ COPY . .
 # SQLite DB volume uchun
 RUN mkdir -p /data
 
+# Non-root user
+RUN adduser --disabled-password --gecos '' appuser && chown -R appuser:appuser /app /data
+USER appuser
+
 # Migrate va start
 EXPOSE 9000
 
