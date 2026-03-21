@@ -473,14 +473,16 @@ def detect_and_install_printers():
 
     return installed_printers, messages
 
-_I=b'\x1b\x40'; _CUT=b'\x1d\x56\x00'; _FEED=b'\x1b\x64\x03'
+_I=b'\x1b\x40'  # init
+_MARGIN0=b'\x1d\x4c\x00\x00'  # chap margin = 0
+_CUT=b'\x1d\x56\x00'; _FEED=b'\x1b\x64\x03'
 _BON=b'\x1b\x45\x01'; _BOFF=b'\x1b\x45\x00'
 _LFT=b'\x1b\x61\x00'; _CTR=b'\x1b\x61\x01'; _RGT=b'\x1b\x61\x02'
 _DBL=b'\x1d\x21\x11'; _NRM=b'\x1d\x21\x00'  # double / normal font
 
 def escpos(text, w=80):
     cw = 42 if w==80 else 32
-    out = bytearray(_I)
+    out = bytearray(_I + _MARGIN0)
     for line in text.split('\n'):
         stripped = line.strip()
         is_sep = '====' in line or '----' in line

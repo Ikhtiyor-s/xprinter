@@ -280,7 +280,7 @@ def poll_and_print(config: NonborConfig, orders: list = None):
         return 0, 0, 0
 
     # Faqat shu biznesning ACCEPTED buyurtmalari — QATTIQ filtrlash
-    biz_id = config.business_id
+    biz_id = int(config.business_id)
     config_name = (config.business_name or '').strip().lower().rstrip('.').rstrip()
     accepted = []
     for o in orders:
@@ -290,22 +290,16 @@ def poll_and_print(config: NonborConfig, orders: list = None):
 
         order_biz = o.get('business') or {}
         order_biz_id = order_biz.get('id')
-        order_biz_name = (order_biz.get('title') or '').strip().lower().rstrip('.').rstrip()
 
-        # 1) business ID bo'yicha (aniq)
-        is_our_biz = False
-        if order_biz_id is not None:
-            try:
-                is_our_biz = int(order_biz_id) == int(biz_id)
-            except (ValueError, TypeError):
-                pass
+        # business.id MAJBURIY — yo'q bo'lsa SKIP
+        if order_biz_id is None:
+            logger.warning(f"Buyurtma #{o.get('id')} SKIP: business.id yo'q!")
+            continue
 
-        # 2) ID yo'q bo'lsa, FAQAT aynan nom bo'yicha (startswith EMAS!)
-        if not is_our_biz and order_biz_name and config_name:
-            is_our_biz = order_biz_name == config_name
-
-        if not is_our_biz:
-            logger.debug(f"Buyurtma #{o.get('id')} SKIP: biz='{order_biz_name}' != config='{config_name}'")
+        try:
+            if int(order_biz_id) != biz_id:
+                continue
+        except (ValueError, TypeError):
             continue
 
         accepted.append(o)
