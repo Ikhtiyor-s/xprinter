@@ -1415,16 +1415,27 @@ class ToolTip:
         self.widget = widget
         self.text_func = text_func if callable(text_func) else lambda: text_func
         self.tip = None
-        widget.bind('<Enter>', self._show)
+        self._id = None
+        widget.bind('<Enter>', self._schedule)
         widget.bind('<Leave>', self._hide)
+        widget.bind('<ButtonPress>', self._hide)
+    def _schedule(self, event):
+        self._hide(event)
+        self._id = self.widget.after(300, lambda: self._show(event))
     def _show(self, event):
-        x, y = event.x_root + 15, event.y_root + 10
+        if self.tip: return
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
         self.tip = tk.Toplevel(self.widget)
         self.tip.wm_overrideredirect(True)
+        self.tip.attributes('-topmost', True)
         self.tip.geometry(f'+{x}+{y}')
         tk.Label(self.tip, text=self.text_func(), bg='#1e293b', fg='white',
-                 font=('Segoe UI',9), padx=8, pady=4, relief='solid', bd=1).pack()
-    def _hide(self, event):
+                 font=('Segoe UI',9,'bold'), padx=10, pady=5, relief='solid', bd=1).pack()
+    def _hide(self, event=None):
+        if self._id:
+            self.widget.after_cancel(self._id)
+            self._id = None
         if self.tip:
             self.tip.destroy()
             self.tip = None
