@@ -42,7 +42,16 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-SERVER_URL = "http://localhost:9090"
+_DEFAULT_SERVER_URL = "http://localhost:9090"
+
+def _load_server_url():
+    """Config dan server URL o'qish, yo'q bo'lsa default"""
+    c = configparser.ConfigParser()
+    if CONFIG_FILE.exists():
+        c.read(CONFIG_FILE, encoding='utf-8')
+    return _cfg_get(c, 'settings', 'server_url', '') or _DEFAULT_SERVER_URL
+
+SERVER_URL = _load_server_url()
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -589,7 +598,7 @@ class Agent:
 
     def reload(self):
         c = load_config()
-        self.server_url    = SERVER_URL
+        self.server_url    = _cfg_get(c, 'settings', 'server_url', '') or _DEFAULT_SERVER_URL
         self.business_id   = _cfg_get(c,'business','id','')
         self.business_name = _cfg_get(c,'business','name','')
         self.username      = _cfg_get(c,'auth','username','')
@@ -1611,7 +1620,7 @@ class SettingsWindow:
     def _do_login(self):
         u = self._l_user.get().strip()
         p = self._l_pass.get().strip()
-        url = SERVER_URL
+        url = self.agent.server_url
         if not u or not p:
             self._l_err.config(text=S('login_error'))
             return
@@ -1908,7 +1917,7 @@ class SettingsWindow:
         dlg.transient(self.win)
         dlg.grab_set()
 
-        w, h = 380, 300
+        w, h = 420, 420
         sw = dlg.winfo_screenwidth()
         sh = dlg.winfo_screenheight()
         x = (sw - w) // 2
@@ -1923,6 +1932,27 @@ class SettingsWindow:
 
         body = tk.Frame(dlg, bg=T('CARD'), padx=20, pady=16)
         body.pack(fill='both', expand=True)
+
+        # ── API URL section
+        tk.Label(body, text="API manzili (server URL)", font=('Segoe UI',10,'bold'),
+                 fg=T('FG'), bg=T('CARD')).pack(anchor='w', pady=(0,4))
+        api_row = tk.Frame(body, bg=T('CARD'))
+        api_row.pack(fill='x', pady=(0,12))
+        self._api_entry = tk.Entry(api_row, font=('Segoe UI',10), bg=T('BG'), fg=T('FG'),
+                                    insertbackground=T('FG'), relief='solid', bd=1)
+        self._api_entry.insert(0, self.agent.server_url)
+        self._api_entry.pack(side='left', fill='x', expand=True)
+        def _save_api():
+            new_url = self._api_entry.get().strip().rstrip('/')
+            if new_url:
+                self.agent.server_url = new_url
+                save_config(self.agent)
+                messagebox.showinfo("", "API manzili saqlandi!\nQayta kiring.", parent=dlg)
+                dlg.destroy()
+                self._do_logout()
+        tk.Button(api_row, text="Saqlash", command=_save_api,
+                  bg=T('GREEN'), fg='white', font=('Segoe UI',9,'bold'),
+                  relief='flat', padx=12, pady=4, cursor='hand2').pack(side='left', padx=(8,0))
 
         # ── Theme section
         tk.Label(body, text=S('theme'), font=('Segoe UI',10,'bold'),
