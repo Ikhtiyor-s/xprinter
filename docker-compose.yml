@@ -3,11 +3,17 @@ services:
     build: .
     container_name: xprinter-server
     ports:
-      - "9090:9000"
+      - "${PORT:-9090}:9000"
     volumes:
-      # Kodni mount - o'zgarishlar avtomatik ko'rinadi (hot reload)
-      - .:/app
+      - xprinter_data:/data
+      - ./db.sqlite3:/app/db.sqlite3
     restart: unless-stopped
     environment:
       - DJANGO_SETTINGS_MODULE=settings
       - PYTHONUNBUFFERED=1
+      - DEBUG=${DEBUG:-false}
+      - SECRET_KEY=${SECRET_KEY:-xprinter-prod-secret-key-change-me}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+
+volumes:
+  xprinter_data:

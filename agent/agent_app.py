@@ -42,7 +42,7 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-SERVER_URL = "http://localhost:9090"
+SERVER_URL = "https://printer.nonbor.uz"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
