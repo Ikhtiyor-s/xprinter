@@ -35,6 +35,7 @@ from .services.print_service import (
     print_order,
     retry_print_job,
     send_test_print,
+    detect_system_printers,
 )
 from .services.nonbor_api import NonborAPI, poll_and_print
 
@@ -44,6 +45,18 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # PRINTER CRUD
 # ============================================================
+
+class PrinterDetectView(APIView):
+    """GET /api/v2/printer/detect/ - Tizimda mavjud printerlarni aniqlash"""
+
+    def get(self, request):
+        printers = detect_system_printers()
+        return Response({
+            'success': True,
+            'count': len(printers),
+            'printers': printers,
+        })
+
 
 class PrinterCreateView(APIView):
     """POST /api/v2/printer/create/ - Yangi printer qo'shish"""

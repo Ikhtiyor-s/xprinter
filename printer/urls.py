@@ -5,6 +5,7 @@ urlpatterns = [
     # ============================================================
     # PRINTER CRUD
     # ============================================================
+    path('printer/detect/', views.PrinterDetectView.as_view(), name='printer-detect'),
     path('printer/create/', views.PrinterCreateView.as_view(), name='printer-create'),
     path('printer/list/', views.PrinterListView.as_view(), name='printer-list'),
     path('printer/<int:pk>/detail/', views.PrinterDetailView.as_view(), name='printer-detail'),

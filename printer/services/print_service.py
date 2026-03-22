@@ -470,6 +470,127 @@ def send_to_printer(printer: Printer, data: bytes):
         return False, f"Noma'lum ulanish turi: {printer.connection_type}"
 
 
+def detect_system_printers():
+    """Tizimda o'rnatilgan printerlarni aniqlash"""
+    printers = []
+
+    # Windows - win32print orqali
+    if IS_WINDOWS and HAS_WIN32PRINT:
+        try:
+            flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+            printer_list = win32print.EnumPrinters(flags, None, 2)
+            default_printer = win32print.GetDefaultPrinter()
+
+            for p in printer_list:
+                name = p['pPrinterName']
+                # Virtual printerlarni o'tkazib yuborish
+                skip_names = ['Microsoft', 'OneNote', 'Fax', 'PDF', 'XPS', 'Send To']
+                if any(s.lower() in name.lower() for s in skip_names):
+                    continue
+
+                port = p.get('pPortName', '')
+                status_code = p.get('Status', 0)
+                is_ready = status_code == 0
+
+                # Ulanish turini aniqlash
+                conn_type = 'usb'
+                ip_address = ''
+                printer_port = 9100
+                if port and ':' in port and any(c.isdigit() for c in port.split(':')[0].split('.')):
+                    # IP:port formatida - tarmoq printer
+                    parts = port.split(':')
+                    ip_address = parts[0]
+                    printer_port = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 9100
+                    conn_type = 'network'
+                elif port and port.startswith('USB'):
+                    conn_type = 'usb'
+
+                printers.append({
+                    'name': name,
+                    'port_name': port,
+                    'connection_type': conn_type,
+                    'ip_address': ip_address,
+                    'printer_port': printer_port,
+                    'is_default': name == default_printer,
+                    'is_ready': is_ready,
+                    'driver': p.get('pDriverName', ''),
+                    'status': 'ready' if is_ready else 'offline',
+                })
+        except Exception as e:
+            logger.error(f"Windows printer aniqlash xatosi: {e}")
+
+    # Linux - lpstat orqali
+    elif not IS_WINDOWS:
+        import subprocess
+        try:
+            result = subprocess.run(['lpstat', '-p', '-d'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if line.startswith('printer '):
+                        parts = line.split()
+                        name = parts[1]
+                        is_ready = 'idle' in line.lower() or 'enabled' in line.lower()
+                        printers.append({
+                            'name': name,
+                            'port_name': '',
+                            'connection_type': 'usb',
+                            'ip_address': '',
+                            'printer_port': 9100,
+                            'is_default': False,
+                            'is_ready': is_ready,
+                            'driver': '',
+                            'status': 'ready' if is_ready else 'offline',
+                        })
+
+            # Default printer
+            for line in result.stdout.split('\n'):
+                if 'system default' in line.lower():
+                    default_name = line.split(':')[-1].strip()
+                    for p in printers:
+                        if p['name'] == default_name:
+                            p['is_default'] = True
+        except Exception as e:
+            logger.error(f"Linux printer aniqlash xatosi: {e}")
+
+    # Tarmoqdagi printerlarni ham qidirish (port 9100 - concurrent scan)
+    try:
+        import concurrent.futures
+        local_ip = socket.gethostbyname(socket.gethostname())
+        subnet = '.'.join(local_ip.split('.')[:3])
+        known_ips = {p['ip_address'] for p in printers if p.get('ip_address')}
+
+        def check_port(ip):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.15)
+                result = sock.connect_ex((ip, 9100))
+                sock.close()
+                return ip if result == 0 else None
+            except:
+                return None
+
+        ips_to_scan = [f"{subnet}.{i}" for i in range(1, 255) if f"{subnet}.{i}" not in known_ips]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            results = executor.map(check_port, ips_to_scan)
+            for ip in results:
+                if ip:
+                    printers.append({
+                        'name': f"Tarmoq printer ({ip})",
+                        'port_name': f"{ip}:9100",
+                        'connection_type': 'network',
+                        'ip_address': ip,
+                        'printer_port': 9100,
+                        'is_default': False,
+                        'is_ready': True,
+                        'driver': 'TCP/IP',
+                        'status': 'ready',
+                    })
+    except Exception as e:
+        logger.debug(f"Tarmoq scan xatosi: {e}")
+
+    return printers
+
+
 # ============================================================
 # ASOSIY PRINT SERVICE
 # ============================================================

@@ -1,1 +1,1 @@
-https://scrubbier-shantae-vaunted.ngrok-free.dev
+http://localhost:9090
