@@ -41,23 +41,8 @@ def _cache_path(business_id=None):
         return BASE_DIR / f'products_cache_{business_id}.json'
     return PRODUCTS_CACHE
 
-# ── SERVER URL (server_url.txt dan o'qiladi, aks holda default) ─────────
-_SERVER_URL_FILE = BASE_DIR / 'server_url.txt'
-_DEFAULT_SERVER = "https://scrubbier-shantae-vaunted.ngrok-free.dev"
-def _load_server_url():
-    if _SERVER_URL_FILE.exists():
-        try:
-            url = _SERVER_URL_FILE.read_text(encoding='utf-8').strip()
-            if url: return url.rstrip('/')
-        except: pass
-    # Fayl yo'q — avtomatik yaratish
-    try:
-        _SERVER_URL_FILE.write_text(_DEFAULT_SERVER, encoding='utf-8')
-    except Exception:
-        pass
-    return _DEFAULT_SERVER
-
-SERVER_URL = _load_server_url()
+# ── SERVER URL ─────────
+SERVER_URL = "https://printer.nonbor.uz"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -112,7 +97,9 @@ def save_config(a):
     c['business'] = {'id': a.business_id, 'name': getattr(a, 'business_name', '')}
     c['auth']     = {'username': a.username, 'password': a.password}
     c['settings'] = {'poll_interval': str(a.poll_interval),
-                     'server_url': a.server_url}
+                     'server_url': a.server_url,
+                     'theme': _current_theme,
+                     'language': _current_lang}
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f: c.write(f)
 
 def is_logged_in():
@@ -143,7 +130,9 @@ def api_fetch_menu(server_url, username, password, business_id):
     """GET /api/v2/agent/menu/<business_id>/ → (ok, products, error)
     products: [{id, name, category_id, category_name}]"""
     try:
+        business_id = int(business_id) if business_id else 0
         full = f"{server_url}/api/v2/agent/menu/{business_id}/"
+        logger.info(f"Menu fetch: {full} user={username} bid={business_id}")
         params = {'username': username, 'password': password}
         if HAS_REQ:
             r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60, verify=False)
@@ -484,22 +473,44 @@ def detect_and_install_printers():
 
     return installed_printers, messages
 
-_I=b'\x1b\x40'; _CUT=b'\x1d\x56\x00'; _FEED=b'\x1b\x64\x03'
-_BON=b'\x1b\x45\x01'; _BOFF=b'\x1b\x45\x00'; _LFT=b'\x1b\x61\x00'
+_I=b'\x1b\x40'  # init
+_MARGIN0=b'\x1d\x4c\x00\x00'  # chap margin = 0
+_CUT=b'\x1d\x56\x00'; _FEED=b'\x1b\x64\x03'
+_BON=b'\x1b\x45\x01'; _BOFF=b'\x1b\x45\x00'
+_LFT=b'\x1b\x61\x00'; _CTR=b'\x1b\x61\x01'; _RGT=b'\x1b\x61\x02'
+_DBL=b'\x1d\x21\x11'; _NRM=b'\x1d\x21\x00'  # double / normal font
 
 def escpos(text, w=80):
     cw = 42 if w==80 else 32
-    out = bytearray(_I)
+    out = bytearray(_I + _MARGIN0)
     for line in text.split('\n'):
-        b = any(x in line for x in ['JAMI:','Buyurtma:','Tel:','====','! IZOH','Manzil:'])
-        out += _LFT
-        if '====' in line: out += ('='*cw).encode()
-        elif '----' in line: out += ('-'*cw).encode()
+        stripped = line.strip()
+        is_sep = '====' in line or '----' in line
+        is_bold = any(x in line for x in ['JAMI:','Buyurtma:','Tel:','! IZOH','Manzil:'])
+        # Markazlash: separator, sarlavha, buyurtma turi (>>...<<)
+        is_center = is_sep or stripped.startswith('>>') or stripped.startswith('***') \
+                    or stripped.startswith('Nonbor #') or stripped.startswith('#') \
+                    or (not any(c in line for c in [':', 'x', '  ']) and len(stripped) < 25 and not stripped[0:1].isdigit())
+        if is_sep:
+            out += _CTR
+            out += (('=' if '=' in line else '-') * cw).encode()
         else:
-            if b: out += _BON
-            out += line.encode('utf-8', errors='replace')
-            if b: out += _BOFF
+            if is_center:
+                out += _CTR
+            else:
+                out += _LFT
+            # Buyurtma turi va sarlavha — katta shrift
+            if stripped.startswith('>>') or stripped.startswith('***'):
+                out += _DBL
+            if is_bold:
+                out += _BON
+            out += stripped.encode('utf-8', errors='replace')
+            if is_bold:
+                out += _BOFF
+            if stripped.startswith('>>') or stripped.startswith('***'):
+                out += _NRM
         out += b'\n'
+    out += _LFT  # reset alignment
     return bytes(out + _FEED + _CUT)
 
 def print_net(ip, port, data):
@@ -578,8 +589,7 @@ class Agent:
 
     def reload(self):
         c = load_config()
-        saved_url = _cfg_get(c,'settings','server_url','')
-        self.server_url    = saved_url if saved_url else SERVER_URL
+        self.server_url    = SERVER_URL
         self.business_id   = _cfg_get(c,'business','id','')
         self.business_name = _cfg_get(c,'business','name','')
         self.username      = _cfg_get(c,'auth','username','')
@@ -1162,25 +1172,297 @@ class PrinterDlg(tk.Toplevel):
         self.destroy()
 
 # ── SETTINGS WINDOW ──────────────────────────────────────────
-# ── LIGHT THEME ──
-BG='#f0f4f8'; BG2='#ffffff'; BG3='#e2e8f0'
-ACCENT='#4f46e5'; RED='#dc2626'; GREEN='#16a34a'
-PURPLE='#7c3aed'; ORANGE='#ea580c'
-FG='#1e293b'; FGD='#64748b'
-CARD='#ffffff'; BORDER='#cbd5e1'; HOVER='#eef2ff'
+# ── THEMES ──
+THEMES = {
+    'light': {
+        'BG': '#f0f4f8', 'BG2': '#ffffff', 'BG3': '#e2e8f0',
+        'ACCENT': '#4f46e5', 'RED': '#dc2626', 'GREEN': '#16a34a',
+        'PURPLE': '#7c3aed', 'ORANGE': '#ea580c',
+        'FG': '#1e293b', 'FGD': '#64748b',
+        'CARD': '#ffffff', 'BORDER': '#cbd5e1', 'HOVER': '#eef2ff',
+        'LOG_BG': '#1e293b', 'LOG_FG': '#a5b4fc',
+        'HEADER_BG': '#4f46e5', 'HEADER_FG': 'white', 'HEADER_SUB': '#c7d2fe',
+        'BTN_HOVER': '#4338ca',
+    },
+    'dark': {
+        'BG': '#0f172a', 'BG2': '#1e293b', 'BG3': '#334155',
+        'ACCENT': '#818cf8', 'RED': '#f87171', 'GREEN': '#4ade80',
+        'PURPLE': '#a78bfa', 'ORANGE': '#fb923c',
+        'FG': '#f1f5f9', 'FGD': '#94a3b8',
+        'CARD': '#1e293b', 'BORDER': '#475569', 'HOVER': '#334155',
+        'LOG_BG': '#0f172a', 'LOG_FG': '#c7d2fe',
+        'HEADER_BG': '#312e81', 'HEADER_FG': '#e0e7ff', 'HEADER_SUB': '#818cf8',
+        'BTN_HOVER': '#4338ca',
+    }
+}
+_current_theme = 'light'
+_current_lang = 'uz'
+
+def T(key):
+    return THEMES[_current_theme].get(key, '#000000')
+
+# ── i18n STRINGS ──
+STRINGS = {
+    'uz': {
+        'app_title': 'NONBOR PRINT AGENT',
+        'app_subtitle': 'nonbor.uz \u2022 Chop etish agenti',
+        'login_title': 'Tizimga kirish',
+        'login_subtitle': 'Admin berilgan login va parolni kiriting',
+        'login': 'Login',
+        'password': 'Parol',
+        'enter': 'Kirish',
+        'checking': 'Tekshirilmoqda...',
+        'start': 'ISHGA TUSHIR',
+        'stop': "TO'XTAT",
+        'running': 'Ishlayapti',
+        'stopped': "To'xtatilgan",
+        'printers': 'Printerlar',
+        'printers_hint': "server nomi bilan mos bo'lsin",
+        'add': "Qo'shish",
+        'edit': 'Tahrirlash',
+        'auto_detect': 'Avtomatik topish',
+        'test': 'Test',
+        'delete': "O'chirish",
+        'logout': 'Hisobdan chiqish',
+        'help': 'Yordam',
+        'settings': 'Sozlamalar',
+        'refresh_products': 'Mahsulotlarni yangilash',
+        'log_title': 'Faoliyat jurnali',
+        'autostart': 'Windows yonganda avtomatik ishga tushir',
+        'exit': 'Chiqish',
+        'theme': 'Mavzu',
+        'language': 'Til',
+        'dark_mode': 'Tungi rejim',
+        'light_mode': 'Kunduzgi rejim',
+        'printer_name': 'Printer nomi',
+        'server_name': 'Server nomi',
+        'conn_type': 'Ulanish turi',
+        'paper_width': "Qog'oz kengligi",
+        'admin_printer': 'Admin printer',
+        'admin_printer_desc': "barcha buyurtmalarni ko'rsatadi",
+        'products': 'Mahsulotlar',
+        'save': 'Saqlash',
+        'cancel': 'Bekor',
+        'all_products': 'barcha mahsulotlar',
+        'network': 'Tarmoq (LAN)',
+        'wifi': 'WiFi',
+        'usb': 'USB',
+        'cloud': 'Cloud',
+        'ip_address': 'IP manzil',
+        'port': 'Port',
+        'select_all': 'Barchasi',
+        'select_none': 'Hech biri',
+        'detected_printers': 'Topilgan printerlar',
+        'no_printer': 'Printer topilmadi',
+        'windows_printer': 'Windows printer',
+        'view_products': "Mahsulotlarni ko'rish",
+        'select_printer_hint': "Printer tanlang",
+        'saved_logins': 'ta saqlangan login mavjud',
+        'login_error': 'Login va parolni kiriting!',
+        'confirm_delete': "O'chirishni tasdiqlang?",
+        'test_ok': 'Test chek chop etildi!',
+        'agent_running_warn': "Agent ishlayapti!\nYopsam buyurtmalar chop etilmaydi. Davom etsinmi?",
+        'close': 'Yopish',
+        'running_n_printers': 'Ishlayapti \u2014 {n} printer',
+        'label': 'Yorliq',
+        'type': 'Turi',
+        'connection': 'Ulanish',
+        'address': 'Manzil',
+        'paper': "Qog'oz",
+    },
+    'ru': {
+        'app_title': 'NONBOR PRINT AGENT',
+        'app_subtitle': 'nonbor.uz \u2022 \u0410\u0433\u0435\u043d\u0442 \u043f\u0435\u0447\u0430\u0442\u0438',
+        'login_title': '\u0412\u0445\u043e\u0434 \u0432 \u0441\u0438\u0441\u0442\u0435\u043c\u0443',
+        'login_subtitle': '\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043b\u043e\u0433\u0438\u043d \u0438 \u043f\u0430\u0440\u043e\u043b\u044c \u043e\u0442 \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430',
+        'login': '\u041b\u043e\u0433\u0438\u043d',
+        'password': '\u041f\u0430\u0440\u043e\u043b\u044c',
+        'enter': '\u0412\u043e\u0439\u0442\u0438',
+        'checking': '\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430...',
+        'start': '\u0417\u0410\u041f\u0423\u0421\u0422\u0418\u0422\u042c',
+        'stop': '\u041e\u0421\u0422\u0410\u041d\u041e\u0412\u0418\u0422\u042c',
+        'running': '\u0420\u0430\u0431\u043e\u0442\u0430\u0435\u0442',
+        'stopped': '\u041e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d',
+        'printers': '\u041f\u0440\u0438\u043d\u0442\u0435\u0440\u044b',
+        'printers_hint': '\u0438\u043c\u044f \u0434\u043e\u043b\u0436\u043d\u043e \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u0442\u044c \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u043e\u043c',
+        'add': '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c',
+        'edit': '\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c',
+        'auto_detect': '\u0410\u0432\u0442\u043e\u043f\u043e\u0438\u0441\u043a',
+        'test': '\u0422\u0435\u0441\u0442',
+        'delete': '\u0423\u0434\u0430\u043b\u0438\u0442\u044c',
+        'logout': '\u0412\u044b\u0445\u043e\u0434 \u0438\u0437 \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u0430',
+        'help': '\u041f\u043e\u043c\u043e\u0449\u044c',
+        'settings': '\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438',
+        'refresh_products': '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043f\u0440\u043e\u0434\u0443\u043a\u0442\u044b',
+        'log_title': '\u0416\u0443\u0440\u043d\u0430\u043b \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u0438',
+        'autostart': '\u0410\u0432\u0442\u043e\u0437\u0430\u043f\u0443\u0441\u043a \u043f\u0440\u0438 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0438 Windows',
+        'exit': '\u0412\u044b\u0445\u043e\u0434',
+        'theme': '\u0422\u0435\u043c\u0430',
+        'language': '\u042f\u0437\u044b\u043a',
+        'dark_mode': '\u0422\u0451\u043c\u043d\u0430\u044f \u0442\u0435\u043c\u0430',
+        'light_mode': '\u0421\u0432\u0435\u0442\u043b\u0430\u044f \u0442\u0435\u043c\u0430',
+        'printer_name': '\u0418\u043c\u044f \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430',
+        'server_name': '\u0418\u043c\u044f \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435',
+        'conn_type': '\u0422\u0438\u043f \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u044f',
+        'paper_width': '\u0428\u0438\u0440\u0438\u043d\u0430 \u0431\u0443\u043c\u0430\u0433\u0438',
+        'admin_printer': '\u0410\u0434\u043c\u0438\u043d \u043f\u0440\u0438\u043d\u0442\u0435\u0440',
+        'admin_printer_desc': '\u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0432\u0441\u0435 \u0437\u0430\u043a\u0430\u0437\u044b',
+        'products': '\u041f\u0440\u043e\u0434\u0443\u043a\u0442\u044b',
+        'save': '\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c',
+        'cancel': '\u041e\u0442\u043c\u0435\u043d\u0430',
+        'all_products': '\u0432\u0441\u0435 \u043f\u0440\u043e\u0434\u0443\u043a\u0442\u044b',
+        'network': '\u0421\u0435\u0442\u044c (LAN)',
+        'wifi': 'WiFi',
+        'usb': 'USB',
+        'cloud': '\u041e\u0431\u043b\u0430\u043a\u043e',
+        'ip_address': 'IP \u0430\u0434\u0440\u0435\u0441',
+        'port': '\u041f\u043e\u0440\u0442',
+        'select_all': '\u0412\u0441\u0435',
+        'select_none': '\u041d\u0438\u0447\u0435\u0433\u043e',
+        'detected_printers': '\u041d\u0430\u0439\u0434\u0435\u043d\u043d\u044b\u0435 \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u044b',
+        'no_printer': '\u041f\u0440\u0438\u043d\u0442\u0435\u0440 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d',
+        'windows_printer': '\u041f\u0440\u0438\u043d\u0442\u0435\u0440 Windows',
+        'view_products': '\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u043f\u0440\u043e\u0434\u0443\u043a\u0442\u043e\u0432',
+        'select_printer_hint': '\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u0440\u0438\u043d\u0442\u0435\u0440',
+        'saved_logins': '\u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0445 \u043b\u043e\u0433\u0438\u043d\u043e\u0432',
+        'login_error': '\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043b\u043e\u0433\u0438\u043d \u0438 \u043f\u0430\u0440\u043e\u043b\u044c!',
+        'confirm_delete': '\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435 \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435?',
+        'test_ok': '\u0422\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u0447\u0435\u043a \u043d\u0430\u043f\u0435\u0447\u0430\u0442\u0430\u043d!',
+        'agent_running_warn': '\u0410\u0433\u0435\u043d\u0442 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442!\n\u0415\u0441\u043b\u0438 \u0437\u0430\u043a\u0440\u044b\u0442\u044c, \u0437\u0430\u043a\u0430\u0437\u044b \u043d\u0435 \u0431\u0443\u0434\u0443\u0442 \u043f\u0435\u0447\u0430\u0442\u0430\u0442\u044c\u0441\u044f. \u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u044c?',
+        'close': '\u0417\u0430\u043a\u0440\u044b\u0442\u044c',
+        'running_n_printers': '\u0420\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u2014 {n} \u043f\u0440\u0438\u043d\u0442\u0435\u0440',
+        'label': '\u042f\u0440\u043b\u044b\u043a',
+        'type': '\u0422\u0438\u043f',
+        'connection': '\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435',
+        'address': '\u0410\u0434\u0440\u0435\u0441',
+        'paper': '\u0411\u0443\u043c\u0430\u0433\u0430',
+    },
+    'en': {
+        'app_title': 'NONBOR PRINT AGENT',
+        'app_subtitle': 'nonbor.uz \u2022 Print Agent',
+        'login_title': 'Sign In',
+        'login_subtitle': 'Enter login and password from admin',
+        'login': 'Login',
+        'password': 'Password',
+        'enter': 'Sign In',
+        'checking': 'Checking...',
+        'start': 'START',
+        'stop': 'STOP',
+        'running': 'Running',
+        'stopped': 'Stopped',
+        'printers': 'Printers',
+        'printers_hint': 'name must match server',
+        'add': 'Add',
+        'edit': 'Edit',
+        'auto_detect': 'Auto Detect',
+        'test': 'Test',
+        'delete': 'Delete',
+        'logout': 'Log Out',
+        'help': 'Help',
+        'settings': 'Settings',
+        'refresh_products': 'Refresh Products',
+        'log_title': 'Activity Log',
+        'autostart': 'Auto-start when Windows starts',
+        'exit': 'Exit',
+        'theme': 'Theme',
+        'language': 'Language',
+        'dark_mode': 'Dark Mode',
+        'light_mode': 'Light Mode',
+        'printer_name': 'Printer Name',
+        'server_name': 'Server Name',
+        'conn_type': 'Connection Type',
+        'paper_width': 'Paper Width',
+        'admin_printer': 'Admin Printer',
+        'admin_printer_desc': 'shows all orders',
+        'products': 'Products',
+        'save': 'Save',
+        'cancel': 'Cancel',
+        'all_products': 'all products',
+        'network': 'Network (LAN)',
+        'wifi': 'WiFi',
+        'usb': 'USB',
+        'cloud': 'Cloud',
+        'ip_address': 'IP Address',
+        'port': 'Port',
+        'select_all': 'All',
+        'select_none': 'None',
+        'detected_printers': 'Detected Printers',
+        'no_printer': 'No printer found',
+        'windows_printer': 'Windows Printer',
+        'view_products': 'View Products',
+        'select_printer_hint': 'Select a printer',
+        'saved_logins': 'saved logins available',
+        'login_error': 'Enter login and password!',
+        'confirm_delete': 'Confirm deletion?',
+        'test_ok': 'Test receipt printed!',
+        'agent_running_warn': "Agent is running!\nOrders won't be printed if closed. Continue?",
+        'close': 'Close',
+        'running_n_printers': 'Running \u2014 {n} printers',
+        'label': 'Label',
+        'type': 'Type',
+        'connection': 'Connection',
+        'address': 'Address',
+        'paper': 'Paper',
+    }
+}
+
+def S(key):
+    return STRINGS.get(_current_lang, STRINGS['uz']).get(key, key)
+
+# ── TOOLTIP ──
+class ToolTip:
+    def __init__(self, widget, text_func):
+        self.widget = widget
+        self.text_func = text_func if callable(text_func) else lambda: text_func
+        self.tip = None
+        self._id = None
+        widget.bind('<Enter>', self._schedule)
+        widget.bind('<Leave>', self._hide)
+        widget.bind('<ButtonPress>', self._hide)
+    def _schedule(self, event):
+        self._hide(event)
+        self._id = self.widget.after(300, lambda: self._show(event))
+    def _show(self, event):
+        if self.tip: return
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.attributes('-topmost', True)
+        self.tip.geometry(f'+{x}+{y}')
+        tk.Label(self.tip, text=self.text_func(), bg='#1e293b', fg='white',
+                 font=('Segoe UI',9,'bold'), padx=10, pady=5, relief='solid', bd=1).pack()
+    def _hide(self, event=None):
+        if self._id:
+            self.widget.after_cancel(self._id)
+            self._id = None
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
 
 class SettingsWindow:
     def __init__(self, agent: Agent, on_close_cb=None):
+        global _current_theme, _current_lang
         self.agent      = agent
         self._on_close  = on_close_cb
         self._printers  = load_printers(agent.business_id)
         self._main_frame = None
         self._login_frame = None
 
+        # Load saved theme/lang from config
+        c = load_config()
+        _current_theme = _cfg_get(c, 'settings', 'theme', 'light')
+        if _current_theme not in THEMES:
+            _current_theme = 'light'
+        _current_lang = _cfg_get(c, 'settings', 'language', 'uz')
+        if _current_lang not in STRINGS:
+            _current_lang = 'uz'
+
         self.win = tk.Tk()
         self.win.title("Nonbor Print Agent")
         self.win.resizable(False, False)
-        self.win.configure(bg=BG)
+        self.win.configure(bg=T('BG'))
         self.win.protocol('WM_DELETE_WINDOW', self._hide)
 
         agent._cbs.append(self._on_log)
@@ -1188,31 +1470,54 @@ class SettingsWindow:
 
     def _btn(self, p, t, bg, cmd, **kw):
         fg = kw.get('fg', 'white')
-        return tk.Button(p, text=t, command=cmd, bg=bg, fg=fg,
-                         font=kw.get('font',('Segoe UI',9)), relief='flat',
-                         padx=kw.get('padx',12), pady=4, cursor='hand2',
-                         activebackground=bg, activeforeground=fg)
+        btn = tk.Button(p, text=t, command=cmd, bg=bg, fg=fg,
+                         font=kw.get('font',('Segoe UI',9)), relief='raised',
+                         bd=2, padx=kw.get('padx',12), pady=5, cursor='hand2',
+                         activebackground=bg, activeforeground=fg,
+                         highlightthickness=0)
+        orig_bg = bg
+        def _on_enter(e):
+            btn.config(relief='groove', bg=self._lighten(orig_bg))
+        def _on_leave(e):
+            btn.config(relief='raised', bg=orig_bg)
+        btn.bind('<Enter>', _on_enter)
+        btn.bind('<Leave>', _on_leave)
+        # Tooltip — har doim ko'rsatish (matn bo'yicha yoki berilgan)
+        tip_text = kw.get('tooltip', t.strip())
+        ToolTip(btn, tip_text)
+        return btn
+
+    @staticmethod
+    def _lighten(hex_color):
+        """Rangni biroz ochroq qilish (hover uchun)"""
+        try:
+            h = hex_color.lstrip('#')
+            r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+            r = min(255, r + 25); g = min(255, g + 25); b = min(255, b + 25)
+            return f'#{r:02x}{g:02x}{b:02x}'
+        except:
+            return hex_color
 
     def _build(self):
         # ── Header (gradient-style)
-        h = tk.Frame(self.win, bg='#4f46e5', pady=14)
+        h = tk.Frame(self.win, bg=T('HEADER_BG'), pady=14)
         h.pack(fill='x')
-        tk.Label(h, text="🖨  NONBOR PRINT AGENT",
-                 font=('Segoe UI',15,'bold'), fg='white', bg='#4f46e5').pack()
-        tk.Label(h, text="nonbor.uz  •  Chop etish agenti",
-                 font=('Segoe UI',9), fg='#c7d2fe', bg='#4f46e5').pack()
+        tk.Label(h, text=f"\U0001f5a8  {S('app_title')}",
+                 font=('Segoe UI',15,'bold'), fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack()
+        tk.Label(h, text=S('app_subtitle'),
+                 font=('Segoe UI',9), fg=T('HEADER_SUB'), bg=T('HEADER_BG')).pack()
 
         # ── Footer (always shown)
-        ft = tk.Frame(self.win, bg=BG3, pady=7, padx=16)
+        ft = tk.Frame(self.win, bg=T('BG3'), pady=7, padx=16)
         ft.pack(fill='x', side='bottom')
-        tk.Frame(self.win, bg=BORDER, height=1).pack(fill='x', side='bottom')
+        tk.Frame(self.win, bg=T('BORDER'), height=1).pack(fill='x', side='bottom')
         self._auto = tk.BooleanVar(value=get_autostart())
-        ttk.Checkbutton(ft, text="Windows yonganda avtomatik ishga tushir",
+        ttk.Checkbutton(ft, text=S('autostart'),
                         variable=self._auto, command=self._toggle_auto).pack(side='left')
-        self._btn(ft, "✕ Chiqish", '#94a3b8', self._quit, padx=10).pack(side='right')
+        _exit_btn = self._btn(ft, f"\u2715 {S('exit')}", '#94a3b8', self._quit, padx=10); _exit_btn.pack(side='right'); ToolTip(_exit_btn, lambda: S('exit'))
 
         # ── Content area
-        self._content = tk.Frame(self.win, bg=BG)
+        self._content = tk.Frame(self.win, bg=T('BG'))
         self._content.pack(fill='both', expand=True)
 
         if is_logged_in():
@@ -1222,42 +1527,34 @@ class SettingsWindow:
 
     # ── LOGIN FRAME ───────────────────────────────────────────
     def _show_login(self):
-        self.win.geometry("480x540")
+        self.win.geometry("480x460")
         if self._main_frame:
             self._main_frame.pack_forget()
         if self._login_frame:
             self._login_frame.destroy()
 
-        f = tk.Frame(self._content, bg=BG)
+        f = tk.Frame(self._content, bg=T('BG'))
         f.pack(fill='both', expand=True)
         self._login_frame = f
         self._saved_logins = load_saved_logins()
 
         # Spacer top
-        tk.Frame(f, bg=BG, height=16).pack()
+        tk.Frame(f, bg=T('BG'), height=16).pack()
 
         # Card frame
-        card = tk.Frame(f, bg=CARD, padx=28, pady=20,
-                        highlightbackground='#e2e8f0', highlightthickness=1)
+        card = tk.Frame(f, bg=T('CARD'), padx=28, pady=20,
+                        highlightbackground=T('BORDER'), highlightthickness=1)
         card.pack(padx=24, fill='x')
 
         # Title
-        title_f = tk.Frame(card, bg=CARD); title_f.pack(fill='x', pady=(0,12))
-        tk.Label(title_f, text="Tizimga kirish",
-                 font=('Segoe UI',14,'bold'), fg='#1e293b', bg=CARD).pack(anchor='w')
-        tk.Label(title_f, text="Admin berilgan login va parolni kiriting",
-                 font=('Segoe UI',9), fg='#94a3b8', bg=CARD).pack(anchor='w')
-
-        # Server URL
-        tk.Label(card, text="Server manzili", font=('Segoe UI',9,'bold'), fg='#475569', bg=CARD,
-                 anchor='w').pack(fill='x')
-        self._l_url = tk.Entry(card, font=('Segoe UI',10), bg='#f8fafc', fg=FG,
-                                insertbackground=FG, relief='solid', bd=1)
-        self._l_url.insert(0, self.agent.server_url)
-        self._l_url.pack(fill='x', pady=(3,10), ipady=3)
+        title_f = tk.Frame(card, bg=T('CARD')); title_f.pack(fill='x', pady=(0,12))
+        tk.Label(title_f, text=S('login_title'),
+                 font=('Segoe UI',14,'bold'), fg=T('FG'), bg=T('CARD')).pack(anchor='w')
+        tk.Label(title_f, text=S('login_subtitle'),
+                 font=('Segoe UI',9), fg=T('FGD'), bg=T('CARD')).pack(anchor='w')
 
         # Login label + input
-        tk.Label(card, text="Login", font=('Segoe UI',9,'bold'), fg='#475569', bg=CARD,
+        tk.Label(card, text=S('login'), font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'),
                  anchor='w').pack(fill='x')
         usernames = [l['username'] for l in self._saved_logins]
         self._l_user = ttk.Combobox(card, values=usernames,
@@ -1266,37 +1563,38 @@ class SettingsWindow:
         self._l_user.bind('<<ComboboxSelected>>', self._on_login_select)
 
         # Parol label + input
-        tk.Label(card, text="Parol", font=('Segoe UI',9,'bold'), fg='#475569', bg=CARD,
+        tk.Label(card, text=S('password'), font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'),
                  anchor='w').pack(fill='x')
-        pf = tk.Frame(card, bg=CARD); pf.pack(fill='x', pady=(3,8))
+        pf = tk.Frame(card, bg=T('CARD')); pf.pack(fill='x', pady=(3,8))
         self._pass_visible = False
-        self._l_pass = tk.Entry(pf, font=('Segoe UI',11), bg='#f8fafc', fg=FG,
-                                 insertbackground=FG, relief='solid', bd=1,
-                                 show='●')
+        self._l_pass = tk.Entry(pf, font=('Segoe UI',11), bg=T('BG2'), fg=T('FG'),
+                                 insertbackground=T('FG'), relief='solid', bd=1,
+                                 show='\u25cf')
         self._l_pass.pack(side='left', fill='x', expand=True, ipady=4)
-        self._l_eye = tk.Button(pf, text='👁', command=self._toggle_pass,
-                                 bg='#f1f5f9', fg='#94a3b8', relief='flat',
+        self._l_eye = tk.Button(pf, text='\U0001f441', command=self._toggle_pass,
+                                 bg=T('BG3'), fg=T('FGD'), relief='flat',
                                  font=('Segoe UI',10), cursor='hand2', padx=8, bd=0)
         self._l_eye.pack(side='left', padx=(4,0))
         self._l_pass.bind('<Return>', lambda e: self._do_login())
 
         # Error label
-        self._l_err = tk.Label(card, text='', font=('Segoe UI',9), fg=RED, bg=CARD)
+        self._l_err = tk.Label(card, text='', font=('Segoe UI',9), fg=T('RED'), bg=T('CARD'))
         self._l_err.pack(fill='x')
 
         # ── KIRISH BUTTON (katta, yorqin)
-        self._l_btn = tk.Button(card, text="➜  Kirish",
+        self._l_btn = tk.Button(card, text=f"\u279c  {S('enter')}",
                                  command=self._do_login,
-                                 bg='#4f46e5', fg='white',
+                                 bg=T('ACCENT'), fg='white',
                                  font=('Segoe UI',12,'bold'),
-                                 relief='flat', pady=10, cursor='hand2',
-                                 activebackground='#4338ca', activeforeground='white')
+                                 relief='raised', bd=3, pady=10, cursor='hand2',
+                                 activebackground=T('BTN_HOVER'), activeforeground='white')
+        ToolTip(self._l_btn, lambda: S('enter'))
         self._l_btn.pack(fill='x', pady=(6,0), ipady=2)
 
         # Saved logins hint
         if self._saved_logins:
-            tk.Label(f, text=f"💾  {len(self._saved_logins)} ta saqlangan login mavjud",
-                     font=('Segoe UI',8), fg=FGD, bg=BG).pack(pady=(10,0))
+            tk.Label(f, text=f"\U0001f4be  {len(self._saved_logins)} {S('saved_logins')}",
+                     font=('Segoe UI',8), fg=T('FGD'), bg=T('BG')).pack(pady=(10,0))
 
         self._l_user.focus()
 
@@ -1307,25 +1605,22 @@ class SettingsWindow:
 
     def _toggle_pass(self):
         self._pass_visible = not self._pass_visible
-        self._l_pass.config(show='' if self._pass_visible else '●')
-        self._l_eye.config(fg=ACCENT if self._pass_visible else '#94a3b8', bg=CARD)
+        self._l_pass.config(show='' if self._pass_visible else '\u25cf')
+        self._l_eye.config(fg=T('ACCENT') if self._pass_visible else T('FGD'), bg=T('CARD'))
 
     def _do_login(self):
         u = self._l_user.get().strip()
         p = self._l_pass.get().strip()
-        url = self._l_url.get().strip().rstrip('/')
-        if not url:
-            self._l_err.config(text="Server manzilini kiriting!")
-            return
+        url = SERVER_URL
         if not u or not p:
-            self._l_err.config(text="Login va parolni kiriting!")
+            self._l_err.config(text=S('login_error'))
             return
-        self._l_btn.config(text="⏳  Tekshirilmoqda...", state='disabled', bg='#6366f1')
+        self._l_btn.config(text=f"\u23f3  {S('checking')}", state='disabled', bg='#6366f1')
         self._l_err.config(text='')
         self.win.update()
 
         ok, bid, bname, err = api_agent_auth(url, u, p)
-        self._l_btn.config(text="➜  Kirish", state='normal', bg='#4f46e5')
+        self._l_btn.config(text=f"\u279c  {S('enter')}", state='normal', bg=T('ACCENT'))
         if not ok:
             self._l_err.config(text=f"✗ {err}")
             return
@@ -1349,69 +1644,80 @@ class SettingsWindow:
         if self._main_frame:
             self._main_frame.destroy()
 
-        f = tk.Frame(self._content, bg=BG)
+        f = tk.Frame(self._content, bg=T('BG'))
         f.pack(fill='both', expand=True)
         self._main_frame = f
 
         # ── Status bar (card style)
-        sb = tk.Frame(f, bg=CARD, pady=10, padx=16, highlightbackground=BORDER,
+        sb = tk.Frame(f, bg=T('CARD'), pady=10, padx=16, highlightbackground=T('BORDER'),
                       highlightthickness=1)
         sb.pack(fill='x', padx=12, pady=(10,0))
-        self._dot   = tk.Label(sb, text="●", font=('Segoe UI',18), fg=RED, bg=CARD)
+        self._dot   = tk.Label(sb, text="\u25cf", font=('Segoe UI',18), fg=T('RED'), bg=T('CARD'))
         self._dot.pack(side='left')
-        info_f = tk.Frame(sb, bg=CARD); info_f.pack(side='left', padx=8)
-        self._stlbl = tk.Label(info_f, text="To'xtatilgan",
-                                font=('Segoe UI',11,'bold'), fg=FG, bg=CARD)
+        info_f = tk.Frame(sb, bg=T('CARD')); info_f.pack(side='left', padx=8)
+        self._stlbl = tk.Label(info_f, text=S('stopped'),
+                                font=('Segoe UI',11,'bold'), fg=T('FG'), bg=T('CARD'))
         self._stlbl.pack(anchor='w')
         biz = self.agent.business_name or f"Biznes #{self.agent.business_id}"
-        self._bizlbl = tk.Label(info_f, text=f"👤 {self.agent.username}  •  {biz}",
-                                 font=('Segoe UI',9), fg=FGD, bg=CARD)
+        self._bizlbl = tk.Label(info_f, text=f"\U0001f464 {self.agent.username}  \u2022  {biz}",
+                                 font=('Segoe UI',9), fg=T('FGD'), bg=T('CARD'))
         self._bizlbl.pack(anchor='w')
-        self._stats = tk.Label(sb, text="", font=('Segoe UI',9,'bold'), fg=FGD, bg=CARD)
+        self._stats = tk.Label(sb, text="", font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'))
         self._stats.pack(side='right', padx=8)
-        self._togbtn = tk.Button(sb, text="▶  ISHGA TUSHIR",
+        self._togbtn = tk.Button(sb, text=f"\u25b6  {S('start')}",
                                   command=self._toggle,
-                                  bg=GREEN, fg='white',
+                                  bg=T('GREEN'), fg='white',
                                   font=('Segoe UI',10,'bold'),
-                                  relief='flat', padx=18, pady=5, cursor='hand2',
+                                  relief='raised', bd=3, padx=18, pady=5, cursor='hand2',
                                   activebackground='#15803d', activeforeground='white')
         self._togbtn.pack(side='right')
+        ToolTip(self._togbtn, lambda: S('start'))
 
         # ── Action buttons row
-        uf = tk.Frame(f, bg=BG, padx=12, pady=6); uf.pack(fill='x')
-        self._btn(uf, "🔄  Mahsulotlarni yangilash", '#059669', self._check_new_products).pack(side='left')
-        self._btn(uf, "❓ Yordam", '#6366f1', self._show_help).pack(side='right', padx=(0,8))
-        self._btn(uf, "⟳  Hisobdan chiqish", '#94a3b8', self._do_logout).pack(side='right')
+        uf = tk.Frame(f, bg=T('BG'), padx=12, pady=6); uf.pack(fill='x')
+        _b1 = self._btn(uf, f"\U0001f504  {S('refresh_products')}", '#059669', self._check_new_products); _b1.pack(side='left'); ToolTip(_b1, lambda: S('refresh_products'))
+        _b4 = self._btn(uf, f"\u2699 {S('settings')}", '#7c3aed', self._show_settings); _b4.pack(side='right', padx=(0,8)); ToolTip(_b4, lambda: S('settings'))
+        _b3 = self._btn(uf, f"\u2753 {S('help')}", '#6366f1', self._show_help); _b3.pack(side='right', padx=(0,4)); ToolTip(_b3, lambda: S('help'))
+        _b2 = self._btn(uf, f"\u21bb  {S('logout')}", '#94a3b8', self._do_logout); _b2.pack(side='right'); ToolTip(_b2, lambda: S('logout'))
 
         # ── Printers section (card)
-        pc = tk.Frame(f, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        pc = tk.Frame(f, bg=T('CARD'), highlightbackground=T('BORDER'), highlightthickness=1)
         pc.pack(fill='x', padx=12, pady=(0,4))
-        ph = tk.Frame(pc, bg=CARD, padx=12, pady=8); ph.pack(fill='x')
-        tk.Label(ph, text="🖨  Printerlar", font=('Segoe UI',10,'bold'), fg=FG, bg=CARD).pack(side='left')
-        tk.Label(ph, text="— server nomi bilan mos bo'lsin",
-                 font=('Segoe UI',8), fg=FGD, bg=CARD).pack(side='left', padx=6)
-        ab = tk.Frame(ph, bg=CARD); ab.pack(side='right')
-        for t,clr,fn in [("🔍 Avtomatik topish",'#0891b2',self._auto_detect_printers),
-                         ("+ Qo'shish",GREEN,self._add),
-                         ("✎",'#4f46e5',self._edit),("⚡ Test",ORANGE,self._tst),
-                         ("✕",RED,self._del)]:
-            self._btn(ab,t,clr,fn,padx=8 if len(t)<4 else 12).pack(side='left',padx=2)
+        ph = tk.Frame(pc, bg=T('CARD'), padx=12, pady=8); ph.pack(fill='x')
+        tk.Label(ph, text=f"\U0001f5a8  {S('printers')}", font=('Segoe UI',10,'bold'), fg=T('FG'), bg=T('CARD')).pack(side='left')
+        tk.Label(ph, text=f"\u2014 {S('printers_hint')}",
+                 font=('Segoe UI',8), fg=T('FGD'), bg=T('CARD')).pack(side='left', padx=6)
+        ab = tk.Frame(ph, bg=T('CARD')); ab.pack(side='right')
+        _tip_map = {
+            "\U0001f50d": S('auto_detect'),
+            "+": S('add'),
+            "\u270e": S('edit'),
+            "\u26a1": S('test'),
+            "\u2715": S('delete'),
+        }
+        for t,clr,fn in [(f"\U0001f50d {S('auto_detect')}",'#0891b2',self._auto_detect_printers),
+                         (f"+ {S('add')}",T('GREEN'),self._add),
+                         ("\u270e",T('ACCENT'),self._edit),(f"\u26a1 {S('test')}",T('ORANGE'),self._tst),
+                         ("\u2715",T('RED'),self._del)]:
+            b = self._btn(ab,t,clr,fn,padx=8 if len(t)<4 else 12); b.pack(side='left',padx=2)
+            tip = next((v for k,v in _tip_map.items() if k in t), t)
+            ToolTip(b, tip)
 
         # Treeview
-        tf = tk.Frame(pc, bg=CARD, padx=12, pady=0); tf.pack(fill='x', pady=(0,8))
+        tf = tk.Frame(pc, bg=T('CARD'), padx=12, pady=0); tf.pack(fill='x', pady=(0,8))
         style = ttk.Style(); style.theme_use('default')
-        style.configure('T.Treeview', background='white', foreground=FG,
-                         fieldbackground='white', rowheight=26, font=('Segoe UI',9))
-        style.configure('T.Treeview.Heading', background='#4f46e5', foreground='white',
+        style.configure('T.Treeview', background=T('BG2'), foreground=T('FG'),
+                         fieldbackground=T('BG2'), rowheight=26, font=('Segoe UI',9))
+        style.configure('T.Treeview.Heading', background=T('HEADER_BG'), foreground=T('HEADER_FG'),
                          font=('Segoe UI',9,'bold'), padding=4)
-        style.map('T.Treeview', background=[('selected','#eef2ff')],
-                  foreground=[('selected','#1e293b')])
+        style.map('T.Treeview', background=[('selected',T('HOVER'))],
+                  foreground=[('selected',T('FG'))])
         cols = ('label','name','admin','conn','addr','width','prods')
         self._tree = ttk.Treeview(tf, style='T.Treeview',
                                    columns=cols, show='headings', height=5)
-        for col,(hd,w) in zip(cols,[("Yorliq",100),("Printer nomi",120),
-                                     ("Turi",55),("Ulanish",65),("Manzil",130),
-                                     ("Qog'oz",45),("Mahsulotlar",110)]):
+        for col,(hd,w) in zip(cols,[(S('label'),100),(S('printer_name'),120),
+                                     (S('type'),55),(S('connection'),65),(S('address'),130),
+                                     (S('paper'),45),(S('products'),110)]):
             self._tree.heading(col, text=hd)
             self._tree.column(col, width=w, anchor='w')
         self._tree.pack(fill='x')
@@ -1419,22 +1725,32 @@ class SettingsWindow:
         self._tree.bind('<<TreeviewSelect>>', self._on_tree_select)
 
         # Mahsulotlar detail panel
-        self._prod_panel = tk.Frame(pc, bg='#f8fafc', padx=12, pady=6)
+        det_bg = T('HOVER') if _current_theme == 'dark' else '#f8fafc'
+        self._prod_panel = tk.Frame(pc, bg=det_bg, padx=12, pady=6)
         self._prod_panel.pack(fill='x', padx=12, pady=(0,8))
-        self._prod_detail = tk.Label(self._prod_panel,
-            text="Printer tanlang — mahsulotlar ko'rinadi",
-            font=('Segoe UI',8), fg=FGD, bg='#f8fafc', anchor='w',
-            wraplength=640, justify='left')
-        self._prod_detail.pack(fill='x')
+        prod_row = tk.Frame(self._prod_panel, bg=det_bg)
+        prod_row.pack(fill='x')
+        self._prod_detail = tk.Label(prod_row,
+            text=f"{S('select_printer_hint')} \u2014 {S('products')}",
+            font=('Segoe UI',8), fg=T('FGD'), bg=det_bg, anchor='w',
+            wraplength=540, justify='left')
+        self._prod_detail.pack(side='left', fill='x', expand=True)
+        self._view_prods_btn = tk.Button(prod_row, text=f"\U0001f4cb {S('products')}",
+            command=self._view_products, bg=T('ACCENT'), fg='white',
+            font=('Segoe UI',8,'bold'), relief='flat', padx=10, pady=2,
+            cursor='hand2', state='disabled',
+            activebackground=T('BTN_HOVER'), activeforeground='white')
+        self._view_prods_btn.pack(side='right')
+        ToolTip(self._view_prods_btn, lambda: S('view_products'))
 
         # ── Log (card)
-        lc = tk.Frame(f, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        lc = tk.Frame(f, bg=T('CARD'), highlightbackground=T('BORDER'), highlightthickness=1)
         lc.pack(fill='both', expand=True, padx=12, pady=(0,8))
-        lh = tk.Frame(lc, bg=CARD, padx=12, pady=4); lh.pack(fill='x')
-        tk.Label(lh, text="📋  Faoliyat jurnali", font=('Segoe UI',9,'bold'),
-                 fg=FG, bg=CARD).pack(anchor='w')
+        lh = tk.Frame(lc, bg=T('CARD'), padx=12, pady=4); lh.pack(fill='x')
+        tk.Label(lh, text=f"\U0001f4cb  {S('log_title')}", font=('Segoe UI',9,'bold'),
+                 fg=T('FG'), bg=T('CARD')).pack(anchor='w')
         self._log = scrolledtext.ScrolledText(
-            lc, font=('Consolas',9), bg='#1e293b', fg='#a5b4fc',
+            lc, font=('Consolas',9), bg=T('LOG_BG'), fg=T('LOG_FG'),
             relief='flat', bd=0, state='disabled', height=6)
         self._log.tag_config('error', foreground='#fca5a5')
         self._log.tag_config('ok',    foreground='#86efac')
@@ -1509,7 +1825,7 @@ class SettingsWindow:
         """Yangi mahsulotlarni ko'rsatish dialogi."""
         dlg = tk.Toplevel(self.win)
         dlg.title("Yangi mahsulotlar topildi")
-        dlg.configure(bg=CARD)
+        dlg.configure(bg=T('CARD'))
         dlg.resizable(True, True)
         dlg.grab_set()
 
@@ -1531,16 +1847,16 @@ class SettingsWindow:
                  font=('Segoe UI', 9), fg='#c7d2fe', bg='#4f46e5').pack()
 
         # Mahsulotlar ro'yxati
-        lf = tk.Frame(dlg, bg=CARD, padx=16, pady=10)
+        lf = tk.Frame(dlg, bg=T('CARD'), padx=16, pady=10)
         lf.pack(fill='both', expand=True)
 
         # Scroll listbox — katta
-        lb_frame = tk.Frame(lf, bg=CARD, highlightbackground=BORDER,
+        lb_frame = tk.Frame(lf, bg=T('CARD'), highlightbackground=T('BORDER'),
                             highlightthickness=1)
         lb_frame.pack(fill='both', expand=True)
         sb2 = tk.Scrollbar(lb_frame, orient='vertical')
         lb = tk.Listbox(lb_frame, yscrollcommand=sb2.set,
-                        bg='white', fg=FG, font=('Segoe UI', 11),
+                        bg='white', fg=T('FG'), font=('Segoe UI', 11),
                         relief='flat', bd=6, selectmode='extended',
                         activestyle='none')
         sb2.config(command=lb.yview)
@@ -1562,11 +1878,11 @@ class SettingsWindow:
         # Info xabar
         tk.Label(lf,
                  text="ℹ️  Printerga biriktirish uchun printer ustida ✎ Tahrirlash tugmasini bosing.",
-                 font=('Segoe UI', 9), fg=FGD, bg=CARD, anchor='w',
+                 font=('Segoe UI', 9), fg=T('FGD'), bg=T('CARD'), anchor='w',
                  wraplength=500, justify='left').pack(fill='x', pady=(10,0))
 
         # Tugmalar
-        tk.Frame(dlg, bg=BORDER, height=1).pack(fill='x')
+        tk.Frame(dlg, bg=T('BORDER'), height=1).pack(fill='x')
         bf = tk.Frame(dlg, bg='#f8fafc', padx=16, pady=10); bf.pack(fill='x')
         tk.Button(bf, text="  Yopish  ", command=dlg.destroy,
                   bg='#4f46e5', fg='white', font=('Segoe UI', 10, 'bold'),
@@ -1581,6 +1897,95 @@ class SettingsWindow:
         pw = self.win.winfo_x() + (self.win.winfo_width()  - dlg.winfo_reqwidth())  // 2
         ph = self.win.winfo_y() + (self.win.winfo_height() - dlg.winfo_reqheight()) // 2
         dlg.geometry(f"+{pw}+{ph}")
+
+    def _show_settings(self):
+        """Settings dialog with theme toggle and language selector"""
+        global _current_theme, _current_lang
+        dlg = tk.Toplevel(self.win)
+        dlg.title(S('settings'))
+        dlg.configure(bg=T('CARD'))
+        dlg.resizable(False, False)
+        dlg.transient(self.win)
+        dlg.grab_set()
+
+        w, h = 380, 300
+        sw = dlg.winfo_screenwidth()
+        sh = dlg.winfo_screenheight()
+        x = (sw - w) // 2
+        y = max(40, (sh - h) // 2)
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+
+        # Header
+        hdr = tk.Frame(dlg, bg=T('HEADER_BG'), pady=12, padx=16)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text=f"\u2699  {S('settings')}",
+                 font=('Segoe UI',13,'bold'), fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack(anchor='w')
+
+        body = tk.Frame(dlg, bg=T('CARD'), padx=20, pady=16)
+        body.pack(fill='both', expand=True)
+
+        # ── Theme section
+        tk.Label(body, text=S('theme'), font=('Segoe UI',10,'bold'),
+                 fg=T('FG'), bg=T('CARD')).pack(anchor='w', pady=(0,6))
+        theme_row = tk.Frame(body, bg=T('CARD'))
+        theme_row.pack(fill='x', pady=(0,16))
+
+        def _set_theme(t):
+            global _current_theme
+            _current_theme = t
+            save_config(self.agent)
+            dlg.destroy()
+            self._rebuild_ui()
+
+        light_bg = T('ACCENT') if _current_theme == 'light' else T('BG3')
+        light_fg = 'white' if _current_theme == 'light' else T('FG')
+        dark_bg = T('ACCENT') if _current_theme == 'dark' else T('BG3')
+        dark_fg = 'white' if _current_theme == 'dark' else T('FG')
+
+        tk.Button(theme_row, text=f"\u2600  {S('light_mode')}", command=lambda: _set_theme('light'),
+                  bg=light_bg, fg=light_fg, font=('Segoe UI',10,'bold'),
+                  relief='flat', padx=16, pady=8, cursor='hand2').pack(side='left', padx=(0,8))
+        tk.Button(theme_row, text=f"\U0001f319  {S('dark_mode')}", command=lambda: _set_theme('dark'),
+                  bg=dark_bg, fg=dark_fg, font=('Segoe UI',10,'bold'),
+                  relief='flat', padx=16, pady=8, cursor='hand2').pack(side='left')
+
+        # ── Language section
+        tk.Label(body, text=S('language'), font=('Segoe UI',10,'bold'),
+                 fg=T('FG'), bg=T('CARD')).pack(anchor='w', pady=(0,6))
+        lang_row = tk.Frame(body, bg=T('CARD'))
+        lang_row.pack(fill='x', pady=(0,8))
+
+        def _set_lang(l):
+            global _current_lang
+            _current_lang = l
+            save_config(self.agent)
+            dlg.destroy()
+            self._rebuild_ui()
+
+        for code, label in [('uz','O\'zbek'), ('ru','\u0420\u0443\u0441\u0441\u043a\u0438\u0439'), ('en','English')]:
+            bg_c = T('ACCENT') if _current_lang == code else T('BG3')
+            fg_c = 'white' if _current_lang == code else T('FG')
+            tk.Button(lang_row, text=f"  {label}  ", command=lambda c=code: _set_lang(c),
+                      bg=bg_c, fg=fg_c, font=('Segoe UI',10,'bold'),
+                      relief='flat', padx=12, pady=6, cursor='hand2').pack(side='left', padx=(0,6))
+
+        # Close button
+        tk.Frame(dlg, bg=T('BORDER'), height=1).pack(fill='x')
+        bf = tk.Frame(dlg, bg=T('BG3'), padx=16, pady=10); bf.pack(fill='x')
+        tk.Button(bf, text=S('close'), command=dlg.destroy,
+                  bg=T('ACCENT'), fg='white', font=('Segoe UI',10,'bold'),
+                  relief='flat', padx=24, pady=6, cursor='hand2',
+                  activebackground=T('BTN_HOVER'), activeforeground='white').pack(side='right')
+
+    def _rebuild_ui(self):
+        """Rebuild the entire UI after theme/language change"""
+        # Destroy all children of the window
+        for w in self.win.winfo_children():
+            w.destroy()
+        self._main_frame = None
+        self._login_frame = None
+        self.win.configure(bg=T('BG'))
+        self._build()
 
     def _do_logout(self):
         if self.agent.running:
@@ -1622,19 +2027,86 @@ class SettingsWindow:
         p = self._sel()
         if not p:
             self._prod_detail.config(
-                text="Printer tanlang — mahsulotlar ko'rinadi", fg=FGD)
+                text=f"{S('select_printer_hint')} \u2014 {S('products')}", fg=T('FGD'))
+            self._view_prods_btn.config(state='disabled')
             return
         pids = p.get('product_ids', [])
         pnames = p.get('product_names', {})
         pname = p.get('name', '')
+        self._view_prods_btn.config(state='normal')
         if not pids:
             self._prod_detail.config(
-                text=f"🖨  {pname}:  barcha mahsulotlar (filter yo'q)", fg=FGD)
+                text=f"🖨  {pname}:  barcha mahsulotlar (filter yo'q)", fg=T('FGD'))
             return
         names = [pnames.get(str(pid), pnames.get(pid, f'#{pid}')) for pid in pids]
         self._prod_detail.config(
-            text=f"🖨  {pname}  →  " + "  |  ".join(names),
+            text=f"🖨  {pname}  →  {len(names)} ta mahsulot",
             fg='#4f46e5')
+
+    def _view_products(self):
+        """Tanlangan printer mahsulotlarini dialog oynada ko'rsatish"""
+        p = self._sel()
+        if not p: return
+        pids = p.get('product_ids', [])
+        pnames = p.get('product_names', {})
+        pname = p.get('label', '') or p.get('name', '')
+
+        dlg = tk.Toplevel(self.win)
+        dlg.title(f"📋 {pname} — Mahsulotlar")
+        dlg.configure(bg=T('CARD'))
+        dlg.resizable(True, True)
+        dlg.transient(self.win)
+        dlg.grab_set()
+
+        sw = dlg.winfo_screenwidth()
+        sh = dlg.winfo_screenheight()
+        w, h = min(480, sw - 80), min(450, sh - 100)
+        x = (sw - w) // 2
+        y = max(40, (sh - h) // 2)
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.minsize(350, 300)
+
+        # Header
+        hdr = tk.Frame(dlg, bg='#4f46e5', pady=12, padx=16)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text=f"🖨  {pname}",
+                 font=('Segoe UI',13,'bold'), fg='white', bg='#4f46e5').pack(anchor='w')
+        if pids:
+            tk.Label(hdr, text=f"{len(pids)} ta mahsulot biriktirilgan",
+                     font=('Segoe UI',9), fg='#c7d2fe', bg='#4f46e5').pack(anchor='w')
+        else:
+            tk.Label(hdr, text="Barcha mahsulotlar (filter yo'q)",
+                     font=('Segoe UI',9), fg='#c7d2fe', bg='#4f46e5').pack(anchor='w')
+
+        # Mahsulotlar ro'yxati
+        lf = tk.Frame(dlg, bg=T('CARD'), padx=16, pady=10)
+        lf.pack(fill='both', expand=True)
+
+        lb_frame = tk.Frame(lf, bg=T('CARD'), highlightbackground=T('BORDER'), highlightthickness=1)
+        lb_frame.pack(fill='both', expand=True)
+        sb2 = tk.Scrollbar(lb_frame, orient='vertical')
+        lb = tk.Listbox(lb_frame, yscrollcommand=sb2.set,
+                        bg='white', fg=T('FG'), font=('Segoe UI',11),
+                        relief='flat', bd=6, activestyle='none')
+        sb2.config(command=lb.yview)
+        sb2.pack(side='right', fill='y')
+        lb.pack(side='left', fill='both', expand=True)
+
+        if not pids:
+            lb.insert('end', "  Barcha mahsulotlar chop etiladi")
+            lb.insert('end', "  (filter o'rnatilmagan)")
+        else:
+            for i, pid in enumerate(pids, 1):
+                name = pnames.get(str(pid), pnames.get(pid, f'#{pid}'))
+                lb.insert('end', f"  {i}.  {name}")
+
+        # Yopish tugmasi
+        tk.Frame(dlg, bg=T('BORDER'), height=1).pack(fill='x')
+        bf = tk.Frame(dlg, bg='#f8fafc', padx=16, pady=10); bf.pack(fill='x')
+        tk.Button(bf, text="Yopish", command=dlg.destroy,
+                  bg='#4f46e5', fg='white', font=('Segoe UI',10,'bold'),
+                  relief='flat', padx=24, pady=6, cursor='hand2',
+                  activebackground='#4338ca', activeforeground='white').pack(side='right')
 
     def _sel(self):
         s = self._tree.selection()
@@ -1644,8 +2116,10 @@ class SettingsWindow:
     def _creds(self):
         """Agent credentials tuple for PrinterDlg"""
         a = self.agent
-        if a.server_url and a.username and a.business_id:
+        logger.info(f"_creds check: url={a.server_url} user={a.username} bid={a.business_id!r}")
+        if a.server_url and a.username and str(a.business_id).strip():
             return (a.server_url, a.username, a.password, a.business_id)
+        logger.warning("_creds returned None!")
         return None
 
     def _auto_detect_printers(self):
@@ -1684,23 +2158,23 @@ class SettingsWindow:
         dlg = tk.Toplevel(self.win)
         dlg.title("Printer drayverini o'rnatish")
         dlg.geometry("520x420")
-        dlg.configure(bg=BG)
+        dlg.configure(bg=T('BG'))
         dlg.resizable(False, False)
         dlg.transient(self.win)
         dlg.grab_set()
 
         # Sarlavha
-        hdr = tk.Frame(dlg, bg=RED, padx=16, pady=10)
+        hdr = tk.Frame(dlg, bg=T('RED'), padx=16, pady=10)
         hdr.pack(fill='x')
         tk.Label(hdr, text="⚠  Printer topilmadi", font=('Segoe UI',13,'bold'),
-                 fg='white', bg=RED).pack(anchor='w')
+                 fg='white', bg=T('RED')).pack(anchor='w')
 
-        body = tk.Frame(dlg, bg=BG, padx=20, pady=12)
+        body = tk.Frame(dlg, bg=T('BG'), padx=20, pady=12)
         body.pack(fill='both', expand=True)
 
         txt = ("Kompyuteringizda printer drayveri o'rnatilmagan.\n"
                "Quyidagi qadamlarni bajaring:\n")
-        tk.Label(body, text=txt, font=('Segoe UI',10), fg=FG, bg=BG,
+        tk.Label(body, text=txt, font=('Segoe UI',10), fg=T('FG'), bg=T('BG'),
                  justify='left', anchor='w').pack(fill='x', pady=(0,8))
 
         steps = [
@@ -1710,17 +2184,17 @@ class SettingsWindow:
             ("4️⃣", "O'rnatish tugagach, ushbu dasturda '🔍 Avtomatik topish' tugmasini bosing"),
         ]
         for num, step in steps:
-            row = tk.Frame(body, bg=BG)
+            row = tk.Frame(body, bg=T('BG'))
             row.pack(fill='x', pady=3)
-            tk.Label(row, text=num, font=('Segoe UI',10), fg=FG, bg=BG,
+            tk.Label(row, text=num, font=('Segoe UI',10), fg=T('FG'), bg=T('BG'),
                      width=3).pack(side='left', anchor='n')
-            tk.Label(row, text=step, font=('Segoe UI',10), fg=FG, bg=BG,
+            tk.Label(row, text=step, font=('Segoe UI',10), fg=T('FG'), bg=T('BG'),
                      wraplength=430, justify='left', anchor='w').pack(side='left', fill='x')
 
         # Havola tugmasi
-        link_frame = tk.Frame(body, bg=BG)
+        link_frame = tk.Frame(body, bg=T('BG'))
         link_frame.pack(fill='x', pady=(8,4))
-        tk.Label(link_frame, text="   ", bg=BG).pack(side='left')
+        tk.Label(link_frame, text="   ", bg=T('BG')).pack(side='left')
         link_btn = tk.Button(link_frame,
             text="🌐  XPrinter drayverlarini yuklab olish",
             font=('Segoe UI',10,'bold'), fg='white', bg='#2563eb',
@@ -1731,7 +2205,7 @@ class SettingsWindow:
 
         # URL ko'rsatish
         tk.Label(body, text=DRIVER_URL,
-                 font=('Consolas',8), fg='#6366f1', bg=BG,
+                 font=('Consolas',8), fg='#6366f1', bg=T('BG'),
                  cursor='hand2').pack(anchor='w', padx=28, pady=(2,8))
 
         # Qo'shimcha yo'riqnoma
@@ -1757,7 +2231,7 @@ class SettingsWindow:
         dlg = tk.Toplevel(self.win)
         dlg.title("Yordam — Nonbor Print Agent")
         dlg.geometry("620x580")
-        dlg.configure(bg=BG)
+        dlg.configure(bg=T('BG'))
         dlg.resizable(False, True)
         dlg.transient(self.win)
         dlg.grab_set()
@@ -1771,9 +2245,9 @@ class SettingsWindow:
                  font=('Segoe UI',9), fg='#c7d2fe', bg='#4f46e5').pack(anchor='w')
 
         # Scrollable content
-        canvas = tk.Canvas(dlg, bg=BG, highlightthickness=0)
+        canvas = tk.Canvas(dlg, bg=T('BG'), highlightthickness=0)
         scrollbar = ttk.Scrollbar(dlg, orient='vertical', command=canvas.yview)
-        scroll_frame = tk.Frame(canvas, bg=BG)
+        scroll_frame = tk.Frame(canvas, bg=T('BG'))
 
         scroll_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.create_window((0, 0), window=scroll_frame, anchor='nw', width=598)
@@ -1798,7 +2272,7 @@ class SettingsWindow:
                      fg='#312e81', bg='#e0e7ff').pack(anchor='w')
 
         def text(content):
-            tk.Label(body, text=content, font=('Segoe UI',9), fg=FG, bg=BG,
+            tk.Label(body, text=content, font=('Segoe UI',9), fg=T('FG'), bg=T('BG'),
                      wraplength=560, justify='left', anchor='w').pack(fill='x', **pad)
 
         # ═══ 1. DASTUR HAQIDA ═══
@@ -2001,7 +2475,7 @@ class SettingsWindow:
              "Ishlab chiqaruvchi: Nonbor.uz")
 
         # Yopish
-        close_frame = tk.Frame(dlg, bg=BG, pady=8)
+        close_frame = tk.Frame(dlg, bg=T('BG'), pady=8)
         close_frame.pack(fill='x', side='bottom')
         tk.Button(close_frame, text="Yopish", font=('Segoe UI',10,'bold'),
                   fg='white', bg='#4f46e5', relief='flat',
@@ -2051,7 +2525,7 @@ class SettingsWindow:
     def _del(self):
         p = self._sel()
         if not p: return
-        if messagebox.askyesno("","O'chirishni tasdiqlang?", parent=self.win):
+        if messagebox.askyesno("",S('confirm_delete'), parent=self.win):
             self._printers = [x for x in self._printers if x['id']!=p['id']]
             save_printers(self._printers, self.agent.business_id); self.agent.printers = self._printers
             self._refresh_tbl()
@@ -2060,7 +2534,7 @@ class SettingsWindow:
         p = self._sel()
         if not p: return
         ok, err = do_print(p, f"==================\n   TEST\n==================\nPrinter: {p['name']}\n{datetime.now().strftime('%d.%m.%Y %H:%M')}\nNonbor Print Agent\n==================\n")
-        if ok: messagebox.showinfo("✓","Test chek chop etildi!",parent=self.win)
+        if ok: messagebox.showinfo("\u2713",S('test_ok'),parent=self.win)
         else:  messagebox.showerror("✗ Xato", err, parent=self.win)
 
     # ── AGENT ────────────────────────────────────────────────
@@ -2080,16 +2554,17 @@ class SettingsWindow:
     def _update_ui(self):
         a = self.agent
         if a.running:
-            self._dot.config(fg='#16a34a')
-            self._stlbl.config(text=f"Ishlayapti — {len(self._printers)} printer", fg='#16a34a')
-            self._togbtn.config(text="⏹  TO'XTAT", bg=RED,
+            self._dot.config(fg=T('GREEN'))
+            n = len(self._printers)
+            self._stlbl.config(text=S('running_n_printers').format(n=n), fg=T('GREEN'))
+            self._togbtn.config(text=f"\u23f9  {S('stop')}", bg=T('RED'),
                                 activebackground='#b91c1c')
         else:
-            self._dot.config(fg=RED)
-            self._stlbl.config(text="To'xtatilgan", fg=FG)
-            self._togbtn.config(text="▶  ISHGA TUSHIR", bg=GREEN,
+            self._dot.config(fg=T('RED'))
+            self._stlbl.config(text=S('stopped'), fg=T('FG'))
+            self._togbtn.config(text=f"\u25b6  {S('start')}", bg=T('GREEN'),
                                 activebackground='#15803d')
-        self._stats.config(text=f"✓ {a.printed}   ✗ {a.errors}")
+        self._stats.config(text=f"\u2713 {a.printed}   \u2717 {a.errors}")
 
     # ── LOG ──────────────────────────────────────────────────
     def _on_log(self, line, lvl='info'):
@@ -2126,8 +2601,8 @@ class SettingsWindow:
 
     def _quit(self):
         if self.agent.running:
-            if not messagebox.askyesno("Chiqish",
-                    "Agent ishlayapti!\nYopsam buyurtmalar chop etilmaydi. Davom etsinmi?",
+            if not messagebox.askyesno(S('exit'),
+                    S('agent_running_warn'),
                     parent=self.win):
                 return
         self.agent.stop()

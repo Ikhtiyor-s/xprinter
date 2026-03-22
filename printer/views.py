@@ -1,6 +1,8 @@
 import logging
+import os
 import time as _time
 
+from django.shortcuts import render
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -880,18 +882,12 @@ class NonborPollAllView(APIView):
             business_id__in=biz_with_printers,
         )
 
-        if not configs.exists():
-            return Response({
-                'success': True,
-                'message': 'Aktiv bizneslar topilmadi',
-                'results': [],
-            })
-
         results = []
         total_new = 0
         total_printed = 0
         total_errors = 0
 
+        # 1) Nonbor API dan polling (mavjud logika)
         for config in configs:
             try:
                 new_count, printed, errors = poll_and_print(config)
@@ -902,6 +898,7 @@ class NonborPollAllView(APIView):
                     results.append({
                         'business_id': config.business_id,
                         'business_name': config.business_name,
+                        'source': 'nonbor',
                         'new_orders': new_count,
                         'printed': printed,
                         'errors': errors,
@@ -912,8 +909,51 @@ class NonborPollAllView(APIView):
                 results.append({
                     'business_id': config.business_id,
                     'business_name': config.business_name,
+                    'source': 'nonbor',
                     'error': str(e),
                 })
+
+        # 2) Tashqi tizimlardan polling (Telegram, Yandex, Uzum, Express24, iiko va h.k.)
+        from .services.nonbor_api import poll_and_print_service
+        from .models import OrderService as OrderServiceModel
+
+        ext_services = OrderServiceModel.objects.filter(
+            is_active=True,
+            poll_enabled=True,
+            business_id__in=biz_with_printers,
+        ).exclude(api_url='')
+
+        for svc in ext_services:
+            try:
+                new_count, printed, errors = poll_and_print_service(svc)
+                total_new += new_count
+                total_printed += printed
+                total_errors += errors
+                if new_count > 0:
+                    results.append({
+                        'business_id': svc.business_id,
+                        'business_name': svc.business_name,
+                        'source': svc.service_name,
+                        'new_orders': new_count,
+                        'printed': printed,
+                        'errors': errors,
+                    })
+            except Exception as e:
+                logger.error(f"Poll-all OrderService #{svc.id} xato: {e}")
+                total_errors += 1
+                results.append({
+                    'business_id': svc.business_id,
+                    'business_name': svc.business_name,
+                    'source': svc.service_name,
+                    'error': str(e),
+                })
+
+        if not results and not configs.exists() and not ext_services.exists():
+            return Response({
+                'success': True,
+                'message': 'Aktiv bizneslar topilmadi',
+                'results': [],
+            })
 
         return Response({
             'success': True,
@@ -932,9 +972,9 @@ class PrintWebhookView(APIView):
     def post(self, request):
         # Webhook secret tekshirish
         webhook_secret = request.headers.get('X-Webhook-Secret', '')
-        # TODO: settings.py dan PRINTER_WEBHOOK_SECRET bilan solishtirish
-        # if webhook_secret != settings.PRINTER_WEBHOOK_SECRET:
-        #     return Response({'error': 'Invalid secret'}, status=403)
+        expected = os.environ.get('WEBHOOK_SECRET', 'nonbor-webhook-secret')
+        if webhook_secret != expected:
+            return Response({'error': 'Invalid webhook secret'}, status=403)
 
         serializer = WebhookSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1013,11 +1053,17 @@ class PrintWebhookView(APIView):
         })
 
 
+from rest_framework.throttling import AnonRateThrottle
+
+class AuthRateThrottle(AnonRateThrottle):
+    rate = '5/minute'
+
 class AgentAuthView(APIView):
     """POST /api/v2/agent/auth/
     Print Agent uchun autentifikatsiya.
     Admin har bir biznesga alohida login/parol beradi.
     {username, password} → {business_id, business_name}"""
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         username = request.data.get('username', '').strip()
@@ -1421,8 +1467,8 @@ def _order_service_dict(s):
         'business_name': s.business_name,
         'service_name': s.service_name,
         'api_url': s.api_url,
-        'api_secret': s.api_secret,
-        'bot_token': s.bot_token,
+        'api_secret': s.api_secret[:4] + '****' if len(s.api_secret) > 4 else '****',
+        'bot_token': s.bot_token[:8] + '****' if len(s.bot_token) > 8 else '****',
         'poll_enabled': s.poll_enabled,
         'poll_interval': s.poll_interval,
         'last_poll_at': s.last_poll_at.isoformat() if s.last_poll_at else None,
@@ -1842,3 +1888,12 @@ class NotificationTestTelegramView(APIView):
             'success': sent,
             'message': 'Xabar yuborildi' if sent else "Xabar yuborib bo'lmadi",
         })
+
+
+# ============================================================
+# AGENT WEB DASHBOARD
+# ============================================================
+
+def agent_dashboard(request):
+    """Web-based Print Agent dashboard — Android va kompyuterda ishlaydi"""
+    return render(request, 'agent_dashboard.html')

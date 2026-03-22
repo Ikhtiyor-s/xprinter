@@ -2,8 +2,11 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from printer.views import agent_dashboard
 
 urlpatterns = [
+    path('', agent_dashboard, name='agent-home'),
+    path('agent/', agent_dashboard, name='agent-dashboard'),
     path('admin/', admin.site.urls),
     path('api/v2/', include('printer.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -396,9 +396,17 @@ class PrintJob(models.Model):
     )
     order_id = models.IntegerField(
         db_index=True,
-        help_text="Nonbor order ID"
+        help_text="Buyurtma ID (platformadan)"
     )
     business_id = models.IntegerField(db_index=True)
+    service_type = models.CharField(
+        max_length=50, default='nonbor', db_index=True,
+        help_text="Buyurtma manbasi: nonbor, telegram, yandex, uzum, express24, iiko, custom"
+    )
+    external_order_id = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text="Tashqi tizim buyurtma ID (dublikat oldini olish uchun)"
+    )
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,

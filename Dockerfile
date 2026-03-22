@@ -13,13 +13,18 @@ RUN pip install --no-cache-dir \
     djangorestframework==3.15.2 \
     django-cors-headers==4.4.0 \
     requests==2.32.3 \
-    Pillow==11.2.1
+    Pillow==11.2.1 \
+    gunicorn==22.0.0
 
 # Copy project
 COPY . .
 
 # SQLite DB volume uchun
 RUN mkdir -p /data
+
+# Non-root user
+RUN adduser --disabled-password --gecos '' appuser && chown -R appuser:appuser /app /data
+USER appuser
 
 # Migrate va start
 EXPOSE 9000
