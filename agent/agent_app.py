@@ -320,7 +320,9 @@ def local_printers():
         except: pass
     return []
 
-DRIVERS_DIR = BASE_DIR / 'drivers'
+# PyInstaller --onefile: drayverlar sys._MEIPASS ichida yoki BASE_DIR/drivers da
+_BUNDLE_DIR = Path(getattr(sys, '_MEIPASS', BASE_DIR))
+DRIVERS_DIR = _BUNDLE_DIR / 'drivers' if (_BUNDLE_DIR / 'drivers').exists() else BASE_DIR / 'drivers'
 
 def get_available_usb_ports():
     """Windows USB Monitor portlarini olish (USB001, USB002, ...)"""
