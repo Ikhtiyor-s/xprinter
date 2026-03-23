@@ -41,12 +41,8 @@ def _cache_path(business_id=None):
         return BASE_DIR / f'products_cache_{business_id}.json'
     return PRODUCTS_CACHE
 
-# ── SERVER URL ───── server_url.txt dan o'qiladi
-_url_file = BASE_DIR / "server_url.txt"
-if _url_file.exists():
-    SERVER_URL = _url_file.read_text(encoding="utf-8").strip()
-else:
-    SERVER_URL = "http://localhost:9000"
+# ── SERVER URL ─────────
+SERVER_URL = "http://192.168.0.104:9090"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
