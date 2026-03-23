@@ -42,7 +42,7 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-SERVER_URL = "http://192.168.0.104:9090"
+SERVER_URL = "http://192.168.1.16:9090"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -411,11 +411,18 @@ def detect_and_install_printers():
     messages = []
     installed_printers = []
 
-    # 1. Avval mavjud printerlarni tekshirish
+    # 1. Avval mavjud printerlarni tekshirish (virtual printerlarni filtrlash)
+    VIRTUAL = {'onenote', 'microsoft print to pdf', 'microsoft xps', 'fax',
+               'send to onenote', 'pdf-xchange', 'adobe pdf', 'foxit'}
     existing = local_printers()
-    if existing:
-        messages.append(f"✓ {len(existing)} ta printer allaqachon mavjud: {', '.join(existing)}")
+    real_printers = [p for p in existing
+                     if not any(v in p.lower() for v in VIRTUAL)]
+    if real_printers:
+        messages.append(f"✓ {len(real_printers)} ta printer topildi: {', '.join(real_printers)}")
         return installed_printers, messages
+    if existing:
+        messages.append(f"ℹ Faqat virtual printerlar topildi: {', '.join(existing)}")
+        messages.append("Haqiqiy printer (XPrinter) topilmadi — drayver o'rnatiladi...")
 
     # 2. drivers/ papkadan drayverlarni o'rnatish
     if DRIVERS_DIR.exists() and list(DRIVERS_DIR.glob('**/*.inf')):
