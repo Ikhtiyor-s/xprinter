@@ -41,8 +41,12 @@ def _cache_path(business_id=None):
         return BASE_DIR / f'products_cache_{business_id}.json'
     return PRODUCTS_CACHE
 
-# ── SERVER URL ─────────
-SERVER_URL = "https://printer.nonbor.uz"
+# ── SERVER URL ───── server_url.txt dan o'qiladi
+_url_file = BASE_DIR / "server_url.txt"
+if _url_file.exists():
+    SERVER_URL = _url_file.read_text(encoding="utf-8").strip()
+else:
+    SERVER_URL = "http://localhost:9000"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -465,11 +469,16 @@ def detect_and_install_printers():
         messages.append(f"✓ Printerlar: {', '.join(final)}")
 
     if not final and not installed_printers:
-        messages.append("\n❌ Printer o'rnatib bo'lmadi.\n"
-                        "Printer drayveri topilmadi.\n\n"
-                        "Drayver yuklab olish:\n"
-                        "  https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download\n\n"
-                        "Printeringiz modelini tanlang va drayverni o'rnating.")
+        messages.append("❌ Printer topilmadi!")
+        messages.append("Printer drayverini o'rnating:")
+        messages.append("1. Printerni USB bilan kompyuterga ulang")
+        messages.append("2. Brauzer ochiladi — drayver yuklab o'rnating")
+        messages.append("3. O'rnatgandan keyin 'Avtomatik topish' bosing")
+        try:
+            import webbrowser
+            webbrowser.open("https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download")
+        except Exception:
+            pass
 
     return installed_printers, messages
 

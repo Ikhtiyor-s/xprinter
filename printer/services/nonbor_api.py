@@ -290,16 +290,22 @@ def poll_and_print(config: NonborConfig, orders: list = None):
 
         order_biz = o.get('business') or {}
         order_biz_id = order_biz.get('id')
+        order_biz_name = (order_biz.get('title') or '').strip().lower().rstrip('.').rstrip()
 
-        # business.id MAJBURIY — yo'q bo'lsa SKIP
-        if order_biz_id is None:
-            logger.warning(f"Buyurtma #{o.get('id')} SKIP: business.id yo'q!")
-            continue
+        # 1) business.id bo'yicha tekshirish
+        is_our_biz = False
+        if order_biz_id is not None:
+            try:
+                is_our_biz = int(order_biz_id) == biz_id
+            except (ValueError, TypeError):
+                pass
 
-        try:
-            if int(order_biz_id) != biz_id:
-                continue
-        except (ValueError, TypeError):
+        # 2) ID yo'q bo'lsa, nom bo'yicha AYNAN tekshirish
+        if not is_our_biz and order_biz_name and config_name:
+            is_our_biz = order_biz_name == config_name
+
+        if not is_our_biz:
+            logger.debug(f"Buyurtma #{o.get('id')} SKIP: biz='{order_biz_name}' (id={order_biz_id}) != config='{config_name}' (id={biz_id})")
             continue
 
         accepted.append(o)
