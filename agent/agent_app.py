@@ -469,16 +469,35 @@ def detect_and_install_printers():
         messages.append(f"✓ Printerlar: {', '.join(final)}")
 
     if not final and not installed_printers:
-        messages.append("❌ Printer topilmadi!")
-        messages.append("Printer drayverini o'rnating:")
-        messages.append("1. Printerni USB bilan kompyuterga ulang")
-        messages.append("2. Brauzer ochiladi — drayver yuklab o'rnating")
-        messages.append("3. O'rnatgandan keyin 'Avtomatik topish' bosing")
-        try:
-            import webbrowser
-            webbrowser.open("https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download")
-        except Exception:
-            pass
+        # Bundled drayver bormi tekshirish
+        driver_exe = None
+        if DRIVERS_DIR.exists():
+            for ext in ('*.exe', '*.EXE'):
+                for f in DRIVERS_DIR.glob(ext):
+                    driver_exe = f
+                    break
+                if driver_exe:
+                    break
+        if driver_exe:
+            messages.append(f"📦 Drayver topildi: {driver_exe.name}")
+            messages.append("Drayver o'rnatish oynasi ochilmoqda...")
+            try:
+                import subprocess
+                subprocess.Popen([str(driver_exe)], shell=True)
+                messages.append("✓ Drayver o'rnatuvchi ishga tushdi!")
+                messages.append("O'rnatib bo'lgach 'Avtomatik topish' qayta bosing")
+            except Exception as e:
+                messages.append(f"⚠ Drayver ishga tushmadi: {e}")
+        else:
+            messages.append("❌ Printer topilmadi!")
+            messages.append("Drayver yuklab o'rnating:")
+            try:
+                import webbrowser
+                webbrowser.open("https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download")
+                messages.append("Brauzerda drayver sahifasi ochildi")
+            except Exception:
+                messages.append("https://www.xprintertech.com drayver yuklab o'rnating")
+            messages.append("O'rnatib bo'lgach 'Avtomatik topish' qayta bosing")
 
     return installed_printers, messages
 
@@ -490,7 +509,7 @@ _LFT=b'\x1b\x61\x00'; _CTR=b'\x1b\x61\x01'; _RGT=b'\x1b\x61\x02'
 _DBL=b'\x1d\x21\x11'; _NRM=b'\x1d\x21\x00'  # double / normal font
 
 def escpos(text, w=80):
-    cw = 42 if w==80 else 32
+    cw = 48 if w==80 else 32
     out = bytearray(_I + _MARGIN0)
     for line in text.split('\n'):
         stripped = line.strip()
