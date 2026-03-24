@@ -42,7 +42,7 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-SERVER_URL = "http://192.168.1.16:9090"
+SERVER_URL = "http://192.168.1.21:9090"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
