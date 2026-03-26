@@ -80,6 +80,34 @@ class AgentUser:
         self.pk = credential.pk
 
 
+class AdminBasicAuthentication(authentication.BaseAuthentication):
+    """Admin panel uchun Basic Auth.
+    axios config.auth = {username, password} -> Authorization: Basic base64(u:p)
+    Django User model orqali autentifikatsiya."""
+
+    def authenticate(self, request):
+        import base64
+        from django.contrib.auth import authenticate as django_authenticate
+
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if not auth_header.startswith('Basic '):
+            return None
+
+        try:
+            decoded = base64.b64decode(auth_header[6:]).decode('utf-8')
+            if ':' not in decoded:
+                return None
+            username, password = decoded.split(':', 1)
+        except Exception:
+            return None
+
+        user = django_authenticate(username=username.strip(), password=password.strip())
+        if not user or not user.is_active:
+            return None
+
+        return (user, 'basic')
+
+
 class WebhookAuthentication(authentication.BaseAuthentication):
     """Webhook autentifikatsiyasi.
     Header: X-Webhook-Secret

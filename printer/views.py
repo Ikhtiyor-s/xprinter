@@ -1394,7 +1394,7 @@ class AgentCredentialListView(APIView):
                 'business_id': c.business_id,
                 'business_name': c.business_name,
                 'username': c.username,
-                'password_set': bool(c.password),
+                'password': '********' if c.password else '',
                 'is_active': c.is_active,
                 'note': c.note,
                 'created_at': c.created_at.isoformat(),

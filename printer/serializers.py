@@ -292,7 +292,7 @@ class WebhookSerializer(serializers.Serializer):
 # ============================================================
 
 class NonborConfigSerializer(serializers.ModelSerializer):
-    api_secret_masked = serializers.SerializerMethodField()
+    api_secret = serializers.SerializerMethodField()
 
     class Meta:
         model = NonborConfig
@@ -304,7 +304,7 @@ class NonborConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'last_poll_at', 'created_at']
 
-    def get_api_secret_masked(self, obj):
+    def get_api_secret(self, obj):
         if obj.api_secret:
             return obj.api_secret[:4] + '***' + obj.api_secret[-2:]
         return ""
@@ -364,17 +364,17 @@ class ReceiptTemplateSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class NotificationConfigSerializer(serializers.ModelSerializer):
-    telegram_bot_token_masked = serializers.SerializerMethodField()
+    telegram_bot_token = serializers.SerializerMethodField()
 
     class Meta:
         model = NotificationConfig
         fields = [
             'id', 'business_id', 'business_name',
-            'telegram_bot_token_masked', 'telegram_chat_id', 'telegram_enabled',
+            'telegram_bot_token', 'telegram_chat_id', 'telegram_enabled',
             'cloud_timeout_minutes', 'is_active', 'created_at',
         ]
 
-    def get_telegram_bot_token_masked(self, obj):
+    def get_telegram_bot_token(self, obj):
         if obj.telegram_bot_token:
             return obj.telegram_bot_token[:8] + '***'
         return ""
