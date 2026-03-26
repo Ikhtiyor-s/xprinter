@@ -686,6 +686,11 @@ class NonborConfigCreateView(APIView):
     """POST /api/v2/nonbor-config/create/ - Nonbor API sozlamasi yaratish"""
 
     def post(self, request):
+        biz_id, err = enforce_business_id(request)
+        if err:
+            return err
+        if biz_id and int(request.data.get('business_id', 0)) != biz_id:
+            return Response({'success': False, 'error': 'Bu biznesga ruxsat berilmagan'}, status=403)
         serializer = NonborConfigCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         config = serializer.save()
@@ -730,6 +735,9 @@ class NonborConfigDetailView(APIView):
     """GET /api/v2/nonbor-config/{business_id}/detail/"""
 
     def get(self, request, business_id):
+        seller_biz = get_seller_business_id(request.user)
+        if seller_biz and seller_biz != business_id:
+            return Response({'success': False, 'error': 'Ruxsat berilmagan'}, status=403)
         try:
             config = NonborConfig.objects.get(business_id=business_id)
         except NonborConfig.DoesNotExist:
@@ -749,6 +757,9 @@ class NonborConfigUpdateView(APIView):
     """PUT /api/v2/nonbor-config/{business_id}/update/"""
 
     def put(self, request, business_id):
+        seller_biz = get_seller_business_id(request.user)
+        if seller_biz and seller_biz != business_id:
+            return Response({'success': False, 'error': 'Ruxsat berilmagan'}, status=403)
         try:
             config = NonborConfig.objects.get(business_id=business_id)
         except NonborConfig.DoesNotExist:
@@ -773,6 +784,9 @@ class NonborConfigDeleteView(APIView):
     """DELETE /api/v2/nonbor-config/{business_id}/delete/"""
 
     def delete(self, request, business_id):
+        seller_biz = get_seller_business_id(request.user)
+        if seller_biz and seller_biz != business_id:
+            return Response({'success': False, 'error': 'Ruxsat berilmagan'}, status=403)
         try:
             config = NonborConfig.objects.get(business_id=business_id)
         except NonborConfig.DoesNotExist:
@@ -1742,6 +1756,9 @@ class ReceiptTemplateDetailView(APIView):
     """GET /api/v2/receipt-template/<business_id>/detail/"""
 
     def get(self, request, business_id):
+        seller_biz = get_seller_business_id(request.user)
+        if seller_biz and seller_biz != business_id:
+            return Response({'success': False, 'error': 'Ruxsat berilmagan'}, status=403)
         try:
             tpl = ReceiptTemplate.objects.get(business_id=business_id)
         except ReceiptTemplate.DoesNotExist:
