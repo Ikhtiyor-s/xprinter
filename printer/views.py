@@ -21,7 +21,10 @@ from .authentication import (
     IsAgentAuthenticated,
     IsWebhookAuthenticated,
     validate_file_upload,
+    get_seller_business_id,
+    enforce_business_id,
 )
+from .models import SellerProfile
 
 from .models import (
     Printer, PrinterCategory, PrinterProduct, PrintJob,
@@ -96,14 +99,13 @@ class PrinterListView(APIView):
     """GET /api/v2/printer/list/?business_id= - Printerlar ro'yxati"""
 
     def get(self, request):
-        business_id = request.query_params.get('business_id')
-        if not business_id:
-            return Response({
-                'success': False,
-                'error': 'business_id parametri kerak',
-            }, status=status.HTTP_400_BAD_REQUEST)
+        biz_id, err = enforce_business_id(request)
+        if err:
+            return err
+        if not biz_id:
+            return Response({'success': False, 'error': 'business_id kerak'}, status=400)
 
-        printers = Printer.objects.filter(business_id=business_id)
+        printers = Printer.objects.filter(business_id=biz_id)
         return Response({
             'success': True,
             'result': PrinterListSerializer(printers, many=True).data,
@@ -708,10 +710,15 @@ class NonborConfigCreateView(APIView):
 
 class NonborConfigListView(APIView):
     permission_classes = [IsAuthenticated]
-    """GET /api/v2/nonbor-config/list/ - Barcha Nonbor sozlamalari"""
+    """GET /api/v2/nonbor-config/list/ - Nonbor sozlamalari"""
 
     def get(self, request):
-        configs = NonborConfig.objects.all().order_by('-created_at')
+        biz_id, err = enforce_business_id(request)
+        if err:
+            return err
+        configs = NonborConfig.objects.all()
+        if biz_id:
+            configs = configs.filter(business_id=biz_id).order_by('-created_at')
         return Response({
             'success': True,
             'result': NonborConfigSerializer(configs, many=True).data,
@@ -1360,10 +1367,12 @@ class AgentCredentialListView(APIView):
     """GET /api/v2/agent-credential/list/ - Barcha agent loginlar"""
 
     def get(self, request):
-        business_id = request.GET.get('business_id')
+        biz_id, err = enforce_business_id(request)
+        if err:
+            return err
         qs = AgentCredential.objects.all().order_by('-created_at')
-        if business_id:
-            qs = qs.filter(business_id=business_id)
+        if biz_id:
+            qs = qs.filter(business_id=biz_id)
         data = []
         for c in qs:
             data.append({
@@ -1813,7 +1822,10 @@ class NotificationListView(APIView):
 
     def get(self, request):
         qs = PrinterNotification.objects.all()
-        biz = request.query_params.get('business_id')
+        biz_id, err = enforce_business_id(request)
+        if err:
+            return err
+        biz = biz_id or request.query_params.get('business_id')
         if biz:
             qs = qs.filter(business_id=biz)
         is_read = request.query_params.get('is_read')
@@ -1832,7 +1844,10 @@ class NotificationUnreadCountView(APIView):
 
     def get(self, request):
         qs = PrinterNotification.objects.filter(is_read=False)
-        biz = request.query_params.get('business_id')
+        biz_id, err = enforce_business_id(request)
+        if err:
+            return err
+        biz = biz_id or request.query_params.get('business_id')
         if biz:
             qs = qs.filter(business_id=biz)
         return Response({
@@ -1976,12 +1991,31 @@ class AdminTokenLoginView(APIView):
             )
 
         token, _ = Token.objects.get_or_create(user=user)
+
+        # Seller profile dan business_id olish
+        business_id = None
+        business_name = ""
+        is_superadmin = user.is_superuser
+        try:
+            profile = user.seller_profile
+            business_id = profile.business_id
+            business_name = profile.business_name
+            is_superadmin = profile.is_superadmin or user.is_superuser
+        except SellerProfile.DoesNotExist:
+            if not user.is_superuser:
+                return Response(
+                    {"error": "Seller profili topilmadi. Admin bilan bog'laning."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         return Response({
             "success": True,
             "token": token.key,
             "user_id": user.id,
             "username": user.username,
-            "is_staff": user.is_staff,
+            "business_id": business_id,
+            "business_name": business_name,
+            "is_superadmin": is_superadmin,
         })
 
 

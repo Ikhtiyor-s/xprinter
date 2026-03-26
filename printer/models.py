@@ -546,3 +546,33 @@ class ReceiptTemplate(models.Model):
 
     def __str__(self):
         return f"Chek shablon → Biznes #{self.business_id} ({self.get_template_type_display()})"
+
+
+class SellerProfile(models.Model):
+    """Seller profili — Django User va business_id bog'lash.
+    Har bir seller faqat o'z biznesining ma'lumotlarini ko'radi.
+    is_superadmin=True bo'lsa barcha bizneslarni ko'radi."""
+
+    user = models.OneToOneField(
+        'auth.User',
+        on_delete=models.CASCADE,
+        related_name='seller_profile',
+    )
+    business_id = models.IntegerField(
+        db_index=True,
+        help_text="Seller bog'langan biznes ID",
+    )
+    business_name = models.CharField(
+        max_length=200, blank=True, default='',
+    )
+    is_superadmin = models.BooleanField(
+        default=False,
+        help_text="True bo'lsa barcha bizneslarni ko'radi (master admin)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'seller_profile'
+
+    def __str__(self):
+        return f"{self.user.username} -> Biznes #{self.business_id} ({self.business_name})"

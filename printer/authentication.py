@@ -149,3 +149,55 @@ def validate_file_upload(uploaded_file, max_size_mb=5, allowed_types=None):
         return False, "Fayl nomi xavfsiz emas."
 
     return True, ""
+
+
+def get_seller_business_id(user):
+    """User dan business_id olish.
+    Superuser/superadmin barcha bizneslarni ko'radi (None qaytadi).
+    Oddiy seller faqat o'z biznesini ko'radi."""
+    if user.is_superuser:
+        return None  # barcha bizneslar
+    try:
+        profile = user.seller_profile
+        if profile.is_superadmin:
+            return None  # barcha bizneslar
+        return profile.business_id
+    except Exception:
+        return None
+
+
+def enforce_business_id(request):
+    """Request dan business_id olish va seller ruxsatini tekshirish.
+    Returns: (business_id, error_response)
+    error_response None bo'lsa — ruxsat bor."""
+    from .authentication import get_seller_business_id
+    from rest_framework.response import Response
+    from rest_framework import status
+
+    # Agent user
+    if hasattr(request.user, 'credential'):
+        return request.user.credential.business_id, None
+
+    # Admin/seller user
+    seller_biz = get_seller_business_id(request.user)
+
+    # Query/body dan business_id olish
+    req_biz = (
+        request.query_params.get('business_id') or
+        request.data.get('business_id') if hasattr(request, 'data') else None
+    )
+
+    if seller_biz is None:
+        # Superadmin — har qanday business_id ga ruxsat
+        if req_biz:
+            return int(req_biz), None
+        return None, None  # barcha bizneslar
+
+    # Oddiy seller — faqat o'z biznesi
+    if req_biz and int(req_biz) != seller_biz:
+        return None, Response(
+            {"success": False, "error": "Bu biznesga ruxsat yo'q"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    return seller_biz, None
