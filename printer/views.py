@@ -12,6 +12,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+from django.contrib.auth import authenticate
+from rest_framework.authtoken.models import Token
+
 from .authentication import (
     AgentTokenAuthentication,
     WebhookAuthentication,
@@ -1941,6 +1944,57 @@ class NotificationTestTelegramView(APIView):
 def agent_dashboard(request):
     """Web-based Print Agent dashboard — Android va kompyuterda ishlaydi"""
     return render(request, 'agent_dashboard.html')
+
+
+# ============================================================
+# ADMIN TOKEN AUTH (seller/admin login)
+# ============================================================
+
+class AdminTokenLoginView(APIView):
+    """POST /api/v2/admin/login/
+    Admin panel uchun token olish.
+    {username, password} -> {token, user_id, business_ids}
+    Django User model orqali autentifikatsiya."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = request.data.get("username", "").strip()
+        password = request.data.get("password", "").strip()
+
+        if not username or not password:
+            return Response(
+                {"error": "username va password kerak"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = authenticate(username=username, password=password)
+        if not user or not user.is_active:
+            return Response(
+                {"error": "Login yoki parol xato"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        token, _ = Token.objects.get_or_create(user=user)
+        return Response({
+            "success": True,
+            "token": token.key,
+            "user_id": user.id,
+            "username": user.username,
+            "is_staff": user.is_staff,
+        })
+
+
+class AdminTokenLogoutView(APIView):
+    """POST /api/v2/admin/logout/ — tokenni o'chirish"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            request.user.auth_token.delete()
+        except Exception:
+            pass
+        return Response({"success": True})
 
 
 # ============================================================

@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
+    "rest_framework.authtoken",
     "printer",
 ]
 
@@ -46,6 +47,7 @@ MIDDLEWARE = [
 ]
 
 CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.environ.get(
         "CORS_ORIGINS", "https://printer.nonbor.uz,https://admin.nonbor.uz"

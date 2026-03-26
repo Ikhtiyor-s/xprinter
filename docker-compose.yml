@@ -55,6 +55,9 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CORS_ORIGINS=${CORS_ORIGINS:-https://printer.nonbor.uz,https://admin.nonbor.uz}
       - SECURE_SSL_REDIRECT=${SECURE_SSL_REDIRECT:-false}
+      - DJANGO_SUPERUSER_USERNAME=${DJANGO_SUPERUSER_USERNAME:-}
+      - DJANGO_SUPERUSER_PASSWORD=${DJANGO_SUPERUSER_PASSWORD:-}
+      - DJANGO_SUPERUSER_EMAIL=${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/api/v2/health/"]
       interval: 30s

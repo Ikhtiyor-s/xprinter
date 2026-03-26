@@ -42,12 +42,14 @@ class AgentTokenAuthentication(authentication.BaseAuthentication):
                 return None
         else:
             # POST body yoki query params dan o'qish
-            username = (
-                request.data.get('username', '') if hasattr(request, 'data') else ''
-            ) or request.query_params.get('username', '')
-            password = (
-                request.data.get('password', '') if hasattr(request, 'data') else ''
-            ) or request.query_params.get('password', '')
+            username = request.query_params.get('username', '')
+            password = request.query_params.get('password', '')
+            if not username:
+                try:
+                    username = request.data.get('username', '')
+                    password = request.data.get('password', '')
+                except Exception:
+                    pass
 
         if not username or not password:
             return None

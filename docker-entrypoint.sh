@@ -21,6 +21,11 @@ echo "Migratsiyalar tekshirilmoqda..."
 python manage.py migrate --settings=settings --run-syncdb 2>/dev/null || python manage.py migrate --settings=settings
 python manage.py collectstatic --noinput 2>/dev/null || true
 
+# Admin superuser yaratish (agar hali yo'q bo'lsa)
+if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then
+    python manage.py createsuperuser --noinput 2>/dev/null || true
+fi
+
 if [ "$DEBUG" = "true" ] || [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ]; then
     echo "DEV server: 0.0.0.0:9000"
     exec python manage.py runserver 0.0.0.0:9000 --settings=settings
