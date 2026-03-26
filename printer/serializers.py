@@ -337,6 +337,12 @@ class NonborConfigUpdateSerializer(serializers.ModelSerializer):
             'seller_id', 'poll_enabled', 'poll_interval', 'is_active',
         ]
 
+    def validate_api_secret(self, value):
+        # Masked qiymat qaytsa — eski qiymatni saqlash
+        if value and '***' in value:
+            return self.instance.api_secret if self.instance else value
+        return value
+
 
 # ============================================================
 # RECEIPT TEMPLATE SERIALIZERS

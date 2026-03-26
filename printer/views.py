@@ -1459,9 +1459,14 @@ class AgentCredentialUpdateView(APIView):
         except AgentCredential.DoesNotExist:
             return Response({'success': False, 'error': 'Topilmadi'}, status=status.HTTP_404_NOT_FOUND)
 
-        for field in ('business_name', 'password', 'note', 'is_active'):
+        for field in ('business_name', 'note', 'is_active'):
             if field in request.data:
                 setattr(cred, field, request.data[field])
+
+        # Parol faqat yangi qiymat yuborilganda o'zgaradi
+        new_password = request.data.get('password', '')
+        if new_password and new_password != '********':
+            cred.set_password(new_password)
 
         new_username = request.data.get('username', '').strip()
         if new_username and new_username != cred.username:
@@ -1480,7 +1485,7 @@ class AgentCredentialUpdateView(APIView):
                 'business_id': cred.business_id,
                 'business_name': cred.business_name,
                 'username': cred.username,
-                'password': cred.password,
+                'password': '********',
                 'is_active': cred.is_active,
                 'note': cred.note,
                 'created_at': cred.created_at.isoformat(),
@@ -1913,15 +1918,20 @@ class NotificationConfigSaveView(APIView):
                 'error': 'business_id kerak',
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        defaults = {
+            'business_name': request.data.get('business_name', ''),
+            'telegram_chat_id': request.data.get('telegram_chat_id', ''),
+            'telegram_enabled': request.data.get('telegram_enabled', False),
+            'cloud_timeout_minutes': request.data.get('cloud_timeout_minutes', 5),
+        }
+        # Masked token bo'lsa o'zgartirmaslik
+        new_token = request.data.get('telegram_bot_token', '')
+        if new_token and '***' not in new_token:
+            defaults['telegram_bot_token'] = new_token
+
         obj, created = NotificationConfig.objects.update_or_create(
             business_id=biz_id,
-            defaults={
-                'business_name': request.data.get('business_name', ''),
-                'telegram_bot_token': request.data.get('telegram_bot_token', ''),
-                'telegram_chat_id': request.data.get('telegram_chat_id', ''),
-                'telegram_enabled': request.data.get('telegram_enabled', False),
-                'cloud_timeout_minutes': request.data.get('cloud_timeout_minutes', 5),
-            }
+            defaults=defaults,
         )
         return Response({
             'success': True,
