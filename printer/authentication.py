@@ -20,15 +20,28 @@ class AgentTokenAuthentication(authentication.BaseAuthentication):
     """
 
     def authenticate(self, request):
+        import base64
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        username = ''
+        password = ''
 
         if auth_header.startswith('Agent '):
+            # Format: Agent username:password
             token = auth_header[6:]
             if ':' not in token:
                 return None
             username, password = token.split(':', 1)
+        elif auth_header.startswith('Basic '):
+            # Format: Basic base64(username:password) — agent desktop app
+            try:
+                decoded = base64.b64decode(auth_header[6:]).decode('utf-8')
+                if ':' not in decoded:
+                    return None
+                username, password = decoded.split(':', 1)
+            except Exception:
+                return None
         else:
-            # POST body dan o'qish (agent auth endpoint uchun)
+            # POST body yoki query params dan o'qish
             username = (
                 request.data.get('username', '') if hasattr(request, 'data') else ''
             ) or request.query_params.get('username', '')

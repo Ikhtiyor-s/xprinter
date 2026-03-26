@@ -145,8 +145,6 @@ def api_fetch_menu(server_url, username, password, business_id):
             req = urllib.request.Request(f"{full}?{qs}")
             req.add_header('ngrok-skip-browser-warning', 'true')
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read())
         if data.get('success'):
@@ -185,8 +183,6 @@ def api_sync_printer(server_url, username, password, printer_data):
             req.add_header('ngrok-skip-browser-warning', 'true')
             import ssl
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read())
         if data.get('success'):
@@ -216,8 +212,6 @@ def api_agent_auth(server_url, username, password):
             req.add_header('ngrok-skip-browser-warning', 'true')
             import ssl
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
                 raw = resp.read()
                 if not raw.strip(): return False, None, None, "Server bo'sh javob qaytardi"
@@ -286,8 +280,6 @@ def _get(url, u, p, path, params=None):
         return _req.get(full, auth=(u, p), headers=_NGROK_HEADER, timeout=10).json()
     import ssl
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(full)
     req.add_header('Authorization', 'Basic ' + base64.b64encode(f'{u}:{p}'.encode()).decode())
     req.add_header('ngrok-skip-browser-warning', 'true')
@@ -299,8 +291,6 @@ def _post(url, u, p, path, data):
         return _req.post(full, json=data, auth=(u, p), headers=_NGROK_HEADER, timeout=10).json()
     import ssl
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     body = json.dumps(data).encode()
     req = urllib.request.Request(full, data=body, method='POST')
     req.add_header('Authorization', 'Basic ' + base64.b64encode(f'{u}:{p}'.encode()).decode())

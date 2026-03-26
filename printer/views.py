@@ -62,6 +62,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 class PrinterDetectView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/printer/detect/ - Tizimda mavjud printerlarni aniqlash"""
 
     def get(self, request):
@@ -74,6 +75,7 @@ class PrinterDetectView(APIView):
 
 
 class PrinterCreateView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/printer/create/ - Yangi printer qo'shish"""
 
     def post(self, request):
@@ -87,6 +89,7 @@ class PrinterCreateView(APIView):
 
 
 class PrinterListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/printer/list/?business_id= - Printerlar ro'yxati"""
 
     def get(self, request):
@@ -105,6 +108,7 @@ class PrinterListView(APIView):
 
 
 class PrinterDetailView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/printer/{id}/detail/ - Printer batafsil"""
 
     def get(self, request, pk):
@@ -123,6 +127,7 @@ class PrinterDetailView(APIView):
 
 
 class PrinterUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
     """PUT /api/v2/printer/{id}/update/ - Printerni tahrirlash"""
 
     def put(self, request, pk):
@@ -146,6 +151,7 @@ class PrinterUpdateView(APIView):
 
 
 class PrinterDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
     """DELETE /api/v2/printer/{id}/delete/ - Printerni o'chirish"""
 
     def delete(self, request, pk):
@@ -165,6 +171,7 @@ class PrinterDeleteView(APIView):
 
 
 class PrinterTestPrintView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/printer/{id}/test-print/ - Test sahifa chop etish"""
 
     def post(self, request, pk):
@@ -195,6 +202,7 @@ class PrinterTestPrintView(APIView):
 # ============================================================
 
 class PrinterCategoryAssignView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/printer-category/assign/ - Kategoriyani printerga ulash"""
 
     def post(self, request):
@@ -215,6 +223,7 @@ class PrinterCategoryAssignView(APIView):
 
 
 class PrinterCategoryListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/printer-category/list/?business_id=&printer_id="""
 
     def get(self, request):
@@ -241,6 +250,7 @@ class PrinterCategoryListView(APIView):
 
 
 class PrinterCategoryRemoveView(APIView):
+    permission_classes = [IsAuthenticated]
     """DELETE /api/v2/printer-category/{id}/remove/"""
 
     def delete(self, request, pk):
@@ -260,6 +270,7 @@ class PrinterCategoryRemoveView(APIView):
 
 
 class PrinterCategoryBulkAssignView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/printer-category/bulk-assign/
     Ko'plab kategoriyalarni printerga ulash (avvalgilar o'chiriladi)"""
 
@@ -297,6 +308,7 @@ class PrinterCategoryBulkAssignView(APIView):
 
 
 class PrinterCategoryByPrinterView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/printer-category/by-printer/{printer_id}/"""
 
     def get(self, request, printer_id):
@@ -315,6 +327,7 @@ class PrinterCategoryByPrinterView(APIView):
 # ============================================================
 
 class PrinterProductAssignView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/printer-product/assign/ - Mahsulotni printerga ulash"""
 
     def post(self, request):
@@ -335,6 +348,7 @@ class PrinterProductAssignView(APIView):
 
 
 class PrinterProductListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/printer-product/list/?business_id=&printer_id="""
 
     def get(self, request):
@@ -361,6 +375,7 @@ class PrinterProductListView(APIView):
 
 
 class PrinterProductRemoveView(APIView):
+    permission_classes = [IsAuthenticated]
     """DELETE /api/v2/printer-product/{id}/remove/"""
 
     def delete(self, request, pk):
@@ -380,6 +395,7 @@ class PrinterProductRemoveView(APIView):
 
 
 class PrinterProductBulkAssignView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/printer-product/bulk-assign/
     Ko'plab mahsulotlarni printerga ulash (shu printerdagi avvalgilar o'chiriladi)"""
 
@@ -417,6 +433,7 @@ class PrinterProductBulkAssignView(APIView):
 
 
 class PrinterProductByPrinterView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/printer-product/by-printer/{printer_id}/"""
 
     def get(self, request, printer_id):
@@ -435,6 +452,7 @@ class PrinterProductByPrinterView(APIView):
 # ============================================================
 
 class PrintJobListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/print-job/list/?business_id=&status=&printer_id=&order_id="""
 
     def get(self, request):
@@ -471,6 +489,7 @@ class PrintJobListView(APIView):
 
 
 class PrintJobRetryView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/print-job/{id}/retry/ - Qayta chop etish"""
 
     def post(self, request, pk):
@@ -505,6 +524,7 @@ class PrintJobRetryView(APIView):
 
 
 class PrintOrderView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/print-job/print-order/{order_id}/
     Buyurtmani qo'lda chop etish (manual trigger)"""
 
@@ -554,21 +574,28 @@ class AgentPollView(APIView):
     business_id=all bo'lsa — barcha bizneslarning pending joblari qaytariladi."""
 
     def get(self, request):
+        # Agent faqat o'z biznesining joblarini ko'radi
+        cred = getattr(request.user, 'credential', None)
         business_id = request.query_params.get('business_id')
+
         if not business_id:
             return Response({
                 'success': False,
                 'error': 'business_id parametri kerak',
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # business_id=all — barcha bizneslar uchun pending joblar
-        if business_id == 'all':
+        # IDOR himoyasi: agent faqat o'z biznesini ko'radi
+        if cred and business_id != 'all' and int(business_id) != cred.business_id:
+            return Response({'success': False, 'error': "Ruxsat berilmagan"}, status=403)
+
+        if business_id == 'all' and cred:
+            # Faqat o'z biznesi
             jobs = PrintJob.objects.filter(
+                business_id=cred.business_id,
                 status=PrintJob.STATUS_PENDING,
                 printer__is_active=True,
             ).select_related('printer').order_by('created_at')
         else:
-            # Faqat bitta biznes uchun pending joblar
             jobs = PrintJob.objects.filter(
                 business_id=business_id,
                 status=PrintJob.STATUS_PENDING,
@@ -650,6 +677,7 @@ class AgentCompleteView(APIView):
 # ============================================================
 
 class NonborConfigCreateView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/nonbor-config/create/ - Nonbor API sozlamasi yaratish"""
 
     def post(self, request):
@@ -676,6 +704,7 @@ class NonborConfigCreateView(APIView):
 
 
 class NonborConfigListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/nonbor-config/list/ - Barcha Nonbor sozlamalari"""
 
     def get(self, request):
@@ -687,6 +716,7 @@ class NonborConfigListView(APIView):
 
 
 class NonborConfigDetailView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/nonbor-config/{business_id}/detail/"""
 
     def get(self, request, business_id):
@@ -705,6 +735,7 @@ class NonborConfigDetailView(APIView):
 
 
 class NonborConfigUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
     """PUT /api/v2/nonbor-config/{business_id}/update/"""
 
     def put(self, request, business_id):
@@ -728,6 +759,7 @@ class NonborConfigUpdateView(APIView):
 
 
 class NonborConfigDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
     """DELETE /api/v2/nonbor-config/{business_id}/delete/"""
 
     def delete(self, request, business_id):
@@ -751,6 +783,7 @@ class NonborConfigDeleteView(APIView):
 # ============================================================
 
 class NonborPollView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/nonbor/poll/{business_id}/
     Nonbor API dan yangi buyurtmalarni olib, chop etish.
     Frontend yoki cron bu endpointni chaqiradi."""
@@ -779,6 +812,7 @@ class NonborPollView(APIView):
 
 
 class NonborOrdersView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/nonbor/orders/{business_id}/
     Nonbor API dan hozirgi buyurtmalarni ko'rish (chop etmasdan)"""
 
@@ -805,6 +839,7 @@ class NonborOrdersView(APIView):
 
 
 class NonborPollStartView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/nonbor/poll-start/{business_id}/
     Avtomatik pollingni yoqish"""
 
@@ -827,6 +862,7 @@ class NonborPollStartView(APIView):
 
 
 class NonborPollStopView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/nonbor/poll-stop/{business_id}/
     Avtomatik pollingni o'chirish"""
 
@@ -849,10 +885,10 @@ class NonborPollStopView(APIView):
 
 
 class NonborPollAllView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/nonbor/poll-all/
     Barcha aktiv bizneslarni bir vaqtda Nonbor API dan polling qilish.
     Agent shu endpointni chaqiradi — har bir biznes uchun alohida poll_and_print."""
-    pass
 
     def post(self, request):
         # Faqat aktiv, poll_enabled va printerli bizneslar
@@ -1251,14 +1287,9 @@ class PrinterAgentSyncView(APIView):
     Printer yaratadi yoki topadi, mahsulot ulashlarini yangilaydi.
     """
     def post(self, request):
-        username = request.data.get('username', '').strip()
-        password = request.data.get('password', '').strip()
-
-        try:
-            cred = AgentCredential.objects.get(username=username, is_active=True)
-        except AgentCredential.DoesNotExist:
-            return Response({'success': False, 'error': 'Auth xato'}, status=401)
-        if not cred.check_password(password):
+        # Auth is handled by AgentTokenAuthentication
+        cred = getattr(request.user, 'credential', None)
+        if not cred:
             return Response({'success': False, 'error': 'Auth xato'}, status=401)
 
         business_id = cred.business_id
@@ -1322,6 +1353,7 @@ class PrinterAgentSyncView(APIView):
 # ============================================================
 
 class AgentCredentialListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/agent-credential/list/ - Barcha agent loginlar"""
 
     def get(self, request):
@@ -1345,6 +1377,7 @@ class AgentCredentialListView(APIView):
 
 
 class AgentCredentialCreateView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/agent-credential/create/ - Yangi agent login qo'shish"""
 
     def post(self, request):
@@ -1391,6 +1424,7 @@ class AgentCredentialCreateView(APIView):
 
 
 class AgentCredentialUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
     """PUT /api/v2/agent-credential/{id}/update/"""
 
     def put(self, request, pk):
@@ -1431,6 +1465,7 @@ class AgentCredentialUpdateView(APIView):
 
 
 class AgentCredentialDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
     """DELETE /api/v2/agent-credential/{id}/delete/"""
 
     def delete(self, request, pk):
@@ -1466,6 +1501,7 @@ def _order_service_dict(s):
 
 
 class OrderServiceListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/order-service/list/?business_id=<id>"""
 
     def get(self, request):
@@ -1477,6 +1513,7 @@ class OrderServiceListView(APIView):
 
 
 class OrderServiceCreateView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/order-service/create/"""
 
     def post(self, request):
@@ -1514,6 +1551,7 @@ class OrderServiceCreateView(APIView):
 
 
 class OrderServiceUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
     """PUT /api/v2/order-service/{id}/update/"""
 
     def put(self, request, pk):
@@ -1533,6 +1571,7 @@ class OrderServiceUpdateView(APIView):
 
 
 class OrderServiceDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
     """DELETE /api/v2/order-service/{id}/delete/"""
 
     def delete(self, request, pk):
@@ -1572,6 +1611,7 @@ def _template_dict(t, request=None):
 
 
 class IntegrationTemplateListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/integration-template/list/"""
 
     def get(self, request):
@@ -1582,6 +1622,7 @@ class IntegrationTemplateListView(APIView):
 
 
 class IntegrationTemplateCreateView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/integration-template/create/"""
 
     def post(self, request):
@@ -1625,6 +1666,7 @@ class IntegrationTemplateCreateView(APIView):
 
 
 class IntegrationTemplateUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
     """PUT /api/v2/integration-template/{id}/update/"""
 
     def put(self, request, pk):
@@ -1652,6 +1694,7 @@ class IntegrationTemplateUpdateView(APIView):
 
 
 class IntegrationTemplateDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
     """DELETE /api/v2/integration-template/{id}/delete/"""
 
     def delete(self, request, pk):
@@ -1668,6 +1711,7 @@ class IntegrationTemplateDeleteView(APIView):
 # ============================================================
 
 class ReceiptTemplateListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/receipt-template/list/?business_id="""
 
     def get(self, request):
@@ -1682,6 +1726,7 @@ class ReceiptTemplateListView(APIView):
 
 
 class ReceiptTemplateDetailView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/receipt-template/<business_id>/detail/"""
 
     def get(self, request, business_id):
@@ -1699,6 +1744,7 @@ class ReceiptTemplateDetailView(APIView):
 
 
 class ReceiptTemplateSaveView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/receipt-template/save/
     Upsert: (business_id + template_type) bo'yicha mavjud bo'lsa yangilaydi, yo'q bo'lsa yaratadi"""
 
@@ -1736,6 +1782,7 @@ class ReceiptTemplateSaveView(APIView):
 
 
 class ReceiptTemplateDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
     """DELETE /api/v2/receipt-template/<business_id>/delete/?template_type=delivery"""
 
     def delete(self, request, business_id):
@@ -1758,6 +1805,7 @@ class ReceiptTemplateDeleteView(APIView):
 # ============================================================
 
 class NotificationListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/notification/list/?business_id=X&is_read=false"""
 
     def get(self, request):
@@ -1776,6 +1824,7 @@ class NotificationListView(APIView):
 
 
 class NotificationUnreadCountView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/notification/unread-count/?business_id=X"""
 
     def get(self, request):
@@ -1790,6 +1839,7 @@ class NotificationUnreadCountView(APIView):
 
 
 class NotificationMarkReadView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/notification/mark-read/
     Body: { ids: [1,2,3] }  yoki  { all: true, business_id: X }"""
 
@@ -1817,6 +1867,7 @@ class NotificationMarkReadView(APIView):
 
 
 class NotificationConfigSaveView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/notification-config/save/ — upsert"""
 
     def post(self, request):
@@ -1845,6 +1896,7 @@ class NotificationConfigSaveView(APIView):
 
 
 class NotificationConfigDetailView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/v2/notification-config/{business_id}/detail/"""
 
     def get(self, request, business_id):
@@ -1859,6 +1911,7 @@ class NotificationConfigDetailView(APIView):
 
 
 class NotificationTestTelegramView(APIView):
+    permission_classes = [IsAuthenticated]
     """POST /api/v2/notification-config/test-telegram/"""
 
     def post(self, request):
