@@ -1,11 +1,24 @@
+import hmac
 import logging
 import os
 import time as _time
 
+from django.conf import settings as django_settings
 from django.shortcuts import render
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
+
+from .authentication import (
+    AgentTokenAuthentication,
+    WebhookAuthentication,
+    IsAgentAuthenticated,
+    IsWebhookAuthenticated,
+    validate_file_upload,
+)
 
 from .models import (
     Printer, PrinterCategory, PrinterProduct, PrintJob,
@@ -62,7 +75,6 @@ class PrinterDetectView(APIView):
 
 class PrinterCreateView(APIView):
     """POST /api/v2/printer/create/ - Yangi printer qo'shish"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request):
         serializer = PrinterCreateSerializer(data=request.data)
@@ -76,7 +88,6 @@ class PrinterCreateView(APIView):
 
 class PrinterListView(APIView):
     """GET /api/v2/printer/list/?business_id= - Printerlar ro'yxati"""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request):
         business_id = request.query_params.get('business_id')
@@ -95,7 +106,6 @@ class PrinterListView(APIView):
 
 class PrinterDetailView(APIView):
     """GET /api/v2/printer/{id}/detail/ - Printer batafsil"""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request, pk):
         try:
@@ -114,7 +124,6 @@ class PrinterDetailView(APIView):
 
 class PrinterUpdateView(APIView):
     """PUT /api/v2/printer/{id}/update/ - Printerni tahrirlash"""
-    pass  # no explicit permission, uses global AllowAny
 
     def put(self, request, pk):
         try:
@@ -138,7 +147,6 @@ class PrinterUpdateView(APIView):
 
 class PrinterDeleteView(APIView):
     """DELETE /api/v2/printer/{id}/delete/ - Printerni o'chirish"""
-    pass  # no explicit permission, uses global AllowAny
 
     def delete(self, request, pk):
         try:
@@ -158,7 +166,6 @@ class PrinterDeleteView(APIView):
 
 class PrinterTestPrintView(APIView):
     """POST /api/v2/printer/{id}/test-print/ - Test sahifa chop etish"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request, pk):
         try:
@@ -189,7 +196,6 @@ class PrinterTestPrintView(APIView):
 
 class PrinterCategoryAssignView(APIView):
     """POST /api/v2/printer-category/assign/ - Kategoriyani printerga ulash"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request):
         serializer = PrinterCategoryAssignSerializer(data=request.data)
@@ -210,7 +216,6 @@ class PrinterCategoryAssignView(APIView):
 
 class PrinterCategoryListView(APIView):
     """GET /api/v2/printer-category/list/?business_id=&printer_id="""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request):
         business_id = request.query_params.get('business_id')
@@ -237,7 +242,6 @@ class PrinterCategoryListView(APIView):
 
 class PrinterCategoryRemoveView(APIView):
     """DELETE /api/v2/printer-category/{id}/remove/"""
-    pass  # no explicit permission, uses global AllowAny
 
     def delete(self, request, pk):
         try:
@@ -258,7 +262,6 @@ class PrinterCategoryRemoveView(APIView):
 class PrinterCategoryBulkAssignView(APIView):
     """POST /api/v2/printer-category/bulk-assign/
     Ko'plab kategoriyalarni printerga ulash (avvalgilar o'chiriladi)"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request):
         serializer = PrinterCategoryBulkAssignSerializer(data=request.data)
@@ -295,7 +298,6 @@ class PrinterCategoryBulkAssignView(APIView):
 
 class PrinterCategoryByPrinterView(APIView):
     """GET /api/v2/printer-category/by-printer/{printer_id}/"""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request, printer_id):
         mappings = PrinterCategory.objects.filter(
@@ -314,7 +316,6 @@ class PrinterCategoryByPrinterView(APIView):
 
 class PrinterProductAssignView(APIView):
     """POST /api/v2/printer-product/assign/ - Mahsulotni printerga ulash"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request):
         serializer = PrinterProductAssignSerializer(data=request.data)
@@ -335,7 +336,6 @@ class PrinterProductAssignView(APIView):
 
 class PrinterProductListView(APIView):
     """GET /api/v2/printer-product/list/?business_id=&printer_id="""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request):
         business_id = request.query_params.get('business_id')
@@ -362,7 +362,6 @@ class PrinterProductListView(APIView):
 
 class PrinterProductRemoveView(APIView):
     """DELETE /api/v2/printer-product/{id}/remove/"""
-    pass  # no explicit permission, uses global AllowAny
 
     def delete(self, request, pk):
         try:
@@ -383,7 +382,6 @@ class PrinterProductRemoveView(APIView):
 class PrinterProductBulkAssignView(APIView):
     """POST /api/v2/printer-product/bulk-assign/
     Ko'plab mahsulotlarni printerga ulash (shu printerdagi avvalgilar o'chiriladi)"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request):
         serializer = PrinterProductBulkAssignSerializer(data=request.data)
@@ -420,7 +418,6 @@ class PrinterProductBulkAssignView(APIView):
 
 class PrinterProductByPrinterView(APIView):
     """GET /api/v2/printer-product/by-printer/{printer_id}/"""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request, printer_id):
         mappings = PrinterProduct.objects.filter(
@@ -439,7 +436,6 @@ class PrinterProductByPrinterView(APIView):
 
 class PrintJobListView(APIView):
     """GET /api/v2/print-job/list/?business_id=&status=&printer_id=&order_id="""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request):
         business_id = request.query_params.get('business_id')
@@ -476,7 +472,6 @@ class PrintJobListView(APIView):
 
 class PrintJobRetryView(APIView):
     """POST /api/v2/print-job/{id}/retry/ - Qayta chop etish"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request, pk):
         try:
@@ -512,7 +507,6 @@ class PrintJobRetryView(APIView):
 class PrintOrderView(APIView):
     """POST /api/v2/print-job/print-order/{order_id}/
     Buyurtmani qo'lda chop etish (manual trigger)"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request, order_id):
         serializer = PrintOrderSerializer(data=request.data)
@@ -552,11 +546,12 @@ class PrintOrderView(APIView):
 
 
 class AgentPollView(APIView):
+    authentication_classes = [AgentTokenAuthentication]
+    permission_classes = [IsAgentAuthenticated]
     """GET /api/v2/print-job/agent/poll/?business_id=
     Print Agent - pending joblarni olish.
     Agent har 3 soniyada shu endpointga so'rov yuboradi.
     business_id=all bo'lsa — barcha bizneslarning pending joblari qaytariladi."""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request):
         business_id = request.query_params.get('business_id')
@@ -605,9 +600,10 @@ class AgentPollView(APIView):
 
 
 class AgentCompleteView(APIView):
+    authentication_classes = [AgentTokenAuthentication]
+    permission_classes = [IsAgentAuthenticated]
     """POST /api/v2/print-job/agent/complete/
     Print Agent - jobni completed/failed deb belgilash"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request):
         job_id = request.data.get('job_id')
@@ -655,7 +651,6 @@ class AgentCompleteView(APIView):
 
 class NonborConfigCreateView(APIView):
     """POST /api/v2/nonbor-config/create/ - Nonbor API sozlamasi yaratish"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request):
         serializer = NonborConfigCreateSerializer(data=request.data)
@@ -682,7 +677,6 @@ class NonborConfigCreateView(APIView):
 
 class NonborConfigListView(APIView):
     """GET /api/v2/nonbor-config/list/ - Barcha Nonbor sozlamalari"""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request):
         configs = NonborConfig.objects.all().order_by('-created_at')
@@ -694,7 +688,6 @@ class NonborConfigListView(APIView):
 
 class NonborConfigDetailView(APIView):
     """GET /api/v2/nonbor-config/{business_id}/detail/"""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request, business_id):
         try:
@@ -713,7 +706,6 @@ class NonborConfigDetailView(APIView):
 
 class NonborConfigUpdateView(APIView):
     """PUT /api/v2/nonbor-config/{business_id}/update/"""
-    pass  # no explicit permission, uses global AllowAny
 
     def put(self, request, business_id):
         try:
@@ -737,7 +729,6 @@ class NonborConfigUpdateView(APIView):
 
 class NonborConfigDeleteView(APIView):
     """DELETE /api/v2/nonbor-config/{business_id}/delete/"""
-    pass  # no explicit permission, uses global AllowAny
 
     def delete(self, request, business_id):
         try:
@@ -763,7 +754,6 @@ class NonborPollView(APIView):
     """POST /api/v2/nonbor/poll/{business_id}/
     Nonbor API dan yangi buyurtmalarni olib, chop etish.
     Frontend yoki cron bu endpointni chaqiradi."""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request, business_id):
         try:
@@ -791,7 +781,6 @@ class NonborPollView(APIView):
 class NonborOrdersView(APIView):
     """GET /api/v2/nonbor/orders/{business_id}/
     Nonbor API dan hozirgi buyurtmalarni ko'rish (chop etmasdan)"""
-    pass  # no explicit permission, uses global AllowAny
 
     def get(self, request, business_id):
         try:
@@ -818,7 +807,6 @@ class NonborOrdersView(APIView):
 class NonborPollStartView(APIView):
     """POST /api/v2/nonbor/poll-start/{business_id}/
     Avtomatik pollingni yoqish"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request, business_id):
         try:
@@ -841,7 +829,6 @@ class NonborPollStartView(APIView):
 class NonborPollStopView(APIView):
     """POST /api/v2/nonbor/poll-stop/{business_id}/
     Avtomatik pollingni o'chirish"""
-    pass  # no explicit permission, uses global AllowAny
 
     def post(self, request, business_id):
         try:
@@ -964,17 +951,16 @@ class NonborPollAllView(APIView):
         })
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class PrintWebhookView(APIView):
+    authentication_classes = [WebhookAuthentication]
+    permission_classes = [IsWebhookAuthenticated]
     """POST /api/v2/print-job/webhook/
     Nonbor backenddan webhook - buyurtma statusi o'zgarganda avtomatik chop etish"""
-    permission_classes = []  # Webhook - autentifikatsiyasiz (secret bilan)
 
     def post(self, request):
         # Webhook secret tekshirish
-        webhook_secret = request.headers.get('X-Webhook-Secret', '')
-        expected = os.environ.get('WEBHOOK_SECRET', 'nonbor-webhook-secret')
-        if webhook_secret != expected:
-            return Response({'error': 'Invalid webhook secret'}, status=403)
+        # Auth handled by WebhookAuthentication (hmac.compare_digest)
 
         serializer = WebhookSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1059,6 +1045,8 @@ class AuthRateThrottle(AnonRateThrottle):
     rate = '5/minute'
 
 class AgentAuthView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     """POST /api/v2/agent/auth/
     Print Agent uchun autentifikatsiya.
     Admin har bir biznesga alohida login/parol beradi.
@@ -1103,22 +1091,20 @@ _MENU_CACHE_TTL = 3600  # 1 soat
 
 
 class NonborMenuView(APIView):
+    authentication_classes = [AgentTokenAuthentication]
+    permission_classes = [IsAgentAuthenticated]
     """GET /api/v2/nonbor/menu/<business_id>/
     Agent uchun: biznes mahsulotlar ro'yxatini olish (Nonbor API proxy)
     Auth: ?username=...&password=...
     """
     def get(self, request, business_id):
-        username = request.GET.get('username', '').strip()
-        password = request.GET.get('password', '').strip()
+        # Auth is now handled by AgentTokenAuthentication header
         force_refresh = request.GET.get('refresh', '').strip() == '1'
 
-        # Agent autentifikatsiya
-        try:
-            cred = AgentCredential.objects.get(username=username, is_active=True)
-        except AgentCredential.DoesNotExist:
-            return Response({'success': False, 'error': 'Login topilmadi'}, status=401)
-        if not cred.check_password(password) or cred.business_id != business_id:
-            return Response({'success': False, 'error': 'Auth xato'}, status=401)
+        # Agent credential from authentication
+        cred = getattr(request.user, 'credential', None)
+        if not cred or cred.business_id != business_id:
+            return Response({'success': False, 'error': "Bu biznesga ruxsat yo'q"}, status=403)
 
         # Keshdan qaytarish (agar yangi so'rov emas bo'lsa)
         cached = _MENU_CACHE.get(business_id)
@@ -1135,7 +1121,7 @@ class NonborMenuView(APIView):
             if default_config:
                 config = NonborConfig.objects.create(
                     business_id=business_id,
-                    business_name=cred.business_name or f'Biznes #{business_id}',
+                    business_name=getattr(cred, 'business_name', '') or f'Biznes #{business_id}',
                     api_url=default_config.api_url,
                     api_secret=default_config.api_secret,
                     is_active=True,
@@ -1258,6 +1244,8 @@ class NonborMenuView(APIView):
 
 
 class PrinterAgentSyncView(APIView):
+    authentication_classes = [AgentTokenAuthentication]
+    permission_classes = [IsAgentAuthenticated]
     """POST /api/v2/printer/agent-sync/
     Agent printer qo'shganda backend bilan sync qiladi.
     Printer yaratadi yoki topadi, mahsulot ulashlarini yangilaydi.
@@ -1348,7 +1336,7 @@ class AgentCredentialListView(APIView):
                 'business_id': c.business_id,
                 'business_name': c.business_name,
                 'username': c.username,
-                'password': c.password,
+                'password_set': bool(c.password),
                 'is_active': c.is_active,
                 'note': c.note,
                 'created_at': c.created_at.isoformat(),
@@ -1628,6 +1616,9 @@ class IntegrationTemplateCreateView(APIView):
             sort_order=int(request.data.get('sort_order', 0)),
         )
         if 'logo' in request.FILES:
+            is_valid, err = validate_file_upload(request.FILES['logo'])
+            if not is_valid:
+                return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
             t.logo = request.FILES['logo']
             t.save()
         return Response({'success': True, 'result': _template_dict(t, request)}, status=status.HTTP_201_CREATED)
@@ -1897,3 +1888,25 @@ class NotificationTestTelegramView(APIView):
 def agent_dashboard(request):
     """Web-based Print Agent dashboard — Android va kompyuterda ishlaydi"""
     return render(request, 'agent_dashboard.html')
+
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
+class HealthCheckView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.db import connection
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT 1')
+            db_ok = True
+        except Exception:
+            db_ok = False
+        return Response({
+            'status': 'healthy' if db_ok else 'degraded',
+            'database': 'ok' if db_ok else 'error',
+        }, status=200 if db_ok else 503)

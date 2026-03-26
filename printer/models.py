@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.hashers import make_password, check_password as django_check_password
 from django.utils import timezone
 
 
@@ -101,7 +102,7 @@ class NonborConfig(models.Model):
     )
     api_secret = models.CharField(
         max_length=200,
-        default='nonbor-secret-key',
+        default='',
         blank=True,
         help_text="X-Telegram-Bot-Secret header qiymati"
     )
@@ -202,7 +203,7 @@ class AgentCredential(models.Model):
     )
     password = models.CharField(
         max_length=200,
-        help_text="Agent parol (sodda matn)"
+        help_text="Agent parol (hashed)"
     )
     is_active = models.BooleanField(default=True)
     note = models.CharField(
@@ -219,8 +220,17 @@ class AgentCredential(models.Model):
     def __str__(self):
         return f"{self.username} → Biznes #{self.business_id} ({self.business_name})"
 
+    def set_password(self, raw_password: str):
+        self.password = make_password(raw_password)
+
     def check_password(self, raw: str) -> bool:
-        return self.password == raw
+        return django_check_password(raw, self.password)
+
+    def save(self, *args, **kwargs):
+        # Yangi parol yoki plaintext parol bo'lsa — hash qilish
+        if self.password and not self.password.startswith(('pbkdf2_sha256$', 'argon2$', 'bcrypt$')):
+            self.password = make_password(self.password)
+        super().save(*args, **kwargs)
 
 
 class NotificationConfig(models.Model):

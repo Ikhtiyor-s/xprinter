@@ -241,7 +241,7 @@ def fetch_all_orders(api_url: str, api_secret: str) -> list:
         'User-Agent': 'NonborPrintAgent/1.0',
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=10, verify=False)
+        resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 200:
             data = resp.json()
             if not data or not data.get('success'):

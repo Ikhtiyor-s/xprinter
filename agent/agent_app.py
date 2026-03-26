@@ -42,7 +42,8 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-SERVER_URL = "http://192.168.1.21:9090"
+# SERVER_URL env yoki config.ini dan o'qiladi
+SERVER_URL = os.environ.get("XPRINTER_SERVER_URL", "")
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -135,7 +136,7 @@ def api_fetch_menu(server_url, username, password, business_id):
         logger.info(f"Menu fetch: {full} user={username} bid={business_id}")
         params = {'username': username, 'password': password}
         if HAS_REQ:
-            r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60, verify=False)
+            r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60)
             try: data = r.json()
             except: return False, [], f"Server xatosi ({r.status_code}): {r.text[:100]}"
         else:
@@ -174,7 +175,7 @@ def api_sync_printer(server_url, username, password, printer_data):
             'product_names': printer_data.get('product_names', {}),
         }
         if HAS_REQ:
-            r = _req.post(full, json=payload, headers=_NGROK_HEADER, timeout=15, verify=False)
+            r = _req.post(full, json=payload, headers=_NGROK_HEADER, timeout=15)
             try: data = r.json()
             except: return False, None, f"Server xatosi ({r.status_code}): {r.text[:100]}"
         else:
@@ -202,7 +203,7 @@ def api_agent_auth(server_url, username, password):
         full = f"{server_url}/api/v2/agent/auth/"
         if HAS_REQ:
             r = _req.post(full, json={'username': username, 'password': password},
-                          headers=_NGROK_HEADER, timeout=10, verify=False)
+                          headers=_NGROK_HEADER, timeout=10)
             text = r.text.strip()
             if not text:
                 return False, None, None, "Server bo'sh javob qaytardi (server ishlamayapti?)"
@@ -282,7 +283,7 @@ def _get(url, u, p, path, params=None):
     full = f"{url.rstrip('/')}/api/v2/{path}"
     if params: full += '?' + '&'.join(f'{k}={v}' for k,v in params.items())
     if HAS_REQ:
-        return _req.get(full, auth=(u, p), headers=_NGROK_HEADER, timeout=10, verify=False).json()
+        return _req.get(full, auth=(u, p), headers=_NGROK_HEADER, timeout=10).json()
     import ssl
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -295,7 +296,7 @@ def _get(url, u, p, path, params=None):
 def _post(url, u, p, path, data):
     full = f"{url.rstrip('/')}/api/v2/{path}"
     if HAS_REQ:
-        return _req.post(full, json=data, auth=(u, p), headers=_NGROK_HEADER, timeout=10, verify=False).json()
+        return _req.post(full, json=data, auth=(u, p), headers=_NGROK_HEADER, timeout=10).json()
     import ssl
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -380,7 +381,7 @@ def install_printer_with_driver(port_name, printer_name, driver_name="Generic / 
     try:
         cmd = (f'rundll32 printui.dll,PrintUIEntry /if '
                f'/b "{printer_name}" /r "{port_name}" /m "{driver_name}"')
-        r = sp.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        r = sp.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
             logger.info(f"Printer o'rnatildi: {printer_name} ({port_name}) [{driver_name}]")
             return True, None
@@ -488,7 +489,7 @@ def detect_and_install_printers():
             messages.append("Drayver o'rnatish oynasi ochilmoqda...")
             try:
                 import subprocess
-                subprocess.Popen([str(driver_exe)], shell=True)
+                subprocess.Popen([str(driver_exe)], shell=False)
                 messages.append("✓ Drayver o'rnatuvchi ishga tushdi!")
                 messages.append("O'rnatib bo'lgach 'Avtomatik topish' qayta bosing")
             except Exception as e:

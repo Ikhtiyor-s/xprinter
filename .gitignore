@@ -27,7 +27,8 @@ agent/build/
 
 # Env
 .env
-.env.*
+.env.local
+.env.production
 
 # IDE
 .idea/
