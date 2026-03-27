@@ -57,7 +57,7 @@ class PrintJobAdmin(admin.ModelAdmin):
 
 @admin.register(NotificationConfig)
 class NotificationConfigAdmin(admin.ModelAdmin):
-    list_display = ['business_id', 'business_name', 'telegram_enabled', 'cloud_timeout_minutes', 'is_active']
+    list_display = ['business_id', 'business_name', 'telegram_enabled', 'cloud_timeout_seconds', 'is_active']
     list_filter = ['telegram_enabled', 'is_active']
 
 

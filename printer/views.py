@@ -1922,7 +1922,7 @@ class NotificationConfigSaveView(APIView):
             'business_name': request.data.get('business_name', ''),
             'telegram_chat_id': request.data.get('telegram_chat_id', ''),
             'telegram_enabled': request.data.get('telegram_enabled', False),
-            'cloud_timeout_minutes': request.data.get('cloud_timeout_minutes', 5),
+            'cloud_timeout_seconds': request.data.get('cloud_timeout_seconds', 20),
         }
         # Masked token bo'lsa o'zgartirmaslik
         new_token = request.data.get('telegram_bot_token', '')

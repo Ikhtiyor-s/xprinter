@@ -377,7 +377,7 @@ class NotificationConfigSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'business_id', 'business_name',
             'telegram_bot_token', 'telegram_chat_id', 'telegram_enabled',
-            'cloud_timeout_minutes', 'is_active', 'created_at',
+            'cloud_timeout_seconds', 'is_active', 'created_at',
         ]
 
     def get_telegram_bot_token(self, obj):

@@ -110,8 +110,8 @@ def notify_print_failure(job: PrintJob, error: str):
 def check_cloud_timeouts():
     """Cloud printer joblarni tekshirish — pending X daqiqadan oshsa failed."""
     configs = NotificationConfig.objects.filter(is_active=True)
-    timeout_map = {c.business_id: c.cloud_timeout_minutes for c in configs}
-    default_timeout = 1
+    timeout_map = {c.business_id: c.cloud_timeout_seconds for c in configs}
+    default_timeout = 20
 
     stale_jobs = PrintJob.objects.filter(
         status=PrintJob.STATUS_PENDING,
@@ -122,13 +122,13 @@ def check_cloud_timeouts():
     timed_out = 0
 
     for job in stale_jobs:
-        timeout_min = timeout_map.get(job.business_id, default_timeout)
-        deadline = job.created_at + timedelta(minutes=timeout_min)
+        timeout_sec = timeout_map.get(job.business_id, default_timeout)
+        deadline = job.created_at + timedelta(seconds=timeout_sec)
 
         if now > deadline:
             error = (
                 f"Cloud printer javob bermadi "
-                f"({timeout_min} daqiqa). Agent offline bo'lishi mumkin."
+                f"({timeout_sec} sekund). Agent offline bo'lishi mumkin."
             )
             job.mark_failed(error)
             notify_print_failure(job, error)
