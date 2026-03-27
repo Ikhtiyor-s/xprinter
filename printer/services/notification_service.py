@@ -111,7 +111,7 @@ def check_cloud_timeouts():
     """Cloud printer joblarni tekshirish — pending X daqiqadan oshsa failed."""
     configs = NotificationConfig.objects.filter(is_active=True)
     timeout_map = {c.business_id: c.cloud_timeout_minutes for c in configs}
-    default_timeout = 5
+    default_timeout = 1
 
     stale_jobs = PrintJob.objects.filter(
         status=PrintJob.STATUS_PENDING,
