@@ -43,7 +43,24 @@ def _cache_path(business_id=None):
 
 # ── SERVER URL ─────────
 # SERVER_URL env yoki config.ini dan o'qiladi
-SERVER_URL = os.environ.get("XPRINTER_SERVER_URL", "")
+def _resolve_server_url():
+    url = os.environ.get("XPRINTER_SERVER_URL", "")
+    if url: return url.rstrip("/")
+    try:
+        import configparser as _cp
+        _c = _cp.ConfigParser()
+        if CONFIG_FILE.exists():
+            _c.read(CONFIG_FILE, encoding="utf-8")
+            url = _c.get("settings", "server_url", fallback="")
+            if url: return url.rstrip("/")
+    except Exception: pass
+    _suf = BASE_DIR / "server_url.txt"
+    if _suf.exists():
+        url = _suf.read_text(encoding="utf-8").strip()
+        if url: return url.rstrip("/")
+    return ""
+
+SERVER_URL = _resolve_server_url()
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -613,7 +630,7 @@ class Agent:
 
     def reload(self):
         c = load_config()
-        self.server_url    = SERVER_URL
+        self.server_url    = _cfg_get(c, "settings", "server_url", "") or SERVER_URL
         self.business_id   = _cfg_get(c,'business','id','')
         self.business_name = _cfg_get(c,'business','name','')
         self.username      = _cfg_get(c,'auth','username','')
