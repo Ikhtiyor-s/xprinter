@@ -78,10 +78,10 @@ class PrinterListSerializer(serializers.ModelSerializer):
         ]
 
     def get_categories_count(self, obj):
-        return obj.categories.count()
+        return getattr(obj, 'categories_count', obj.categories.count())
 
     def get_products_count(self, obj):
-        return obj.products.count()
+        return getattr(obj, 'products_count', obj.products.count())
 
     def get_connection_info(self, obj):
         if obj.connection_type in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI):

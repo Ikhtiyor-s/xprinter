@@ -5,6 +5,7 @@ import time as _time
 
 from django.conf import settings as django_settings
 from django.shortcuts import render
+from django.db import transaction
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
@@ -105,7 +106,11 @@ class PrinterListView(APIView):
         if not biz_id:
             return Response({'success': False, 'error': 'business_id kerak'}, status=400)
 
-        printers = Printer.objects.filter(business_id=biz_id)
+        from django.db.models import Count
+        printers = Printer.objects.filter(business_id=biz_id).annotate(
+            categories_count=Count('categories', distinct=True),
+            products_count=Count('products', distinct=True),
+        )
         return Response({
             'success': True,
             'result': PrinterListSerializer(printers, many=True).data,
@@ -118,7 +123,7 @@ class PrinterDetailView(APIView):
 
     def get(self, request, pk):
         try:
-            printer = Printer.objects.get(pk=pk)
+            printer = Printer.objects.prefetch_related('categories', 'products').get(pk=pk)
         except Printer.DoesNotExist:
             return Response({
                 'success': False,
@@ -1128,7 +1133,7 @@ class AgentAuthView(APIView):
         except AgentCredential.DoesNotExist:
             return Response({
                 'success': False,
-                'error': 'Login topilmadi yoki bloklangan',
+                'error': 'Login yoki parol xato',
             }, status=status.HTTP_401_UNAUTHORIZED)
 
         if not cred.check_password(password):
@@ -1167,7 +1172,8 @@ class NonborMenuView(APIView):
             return Response({'success': False, 'error': "Bu biznesga ruxsat yo'q"}, status=403)
 
         # Keshdan qaytarish (agar yangi so'rov emas bo'lsa)
-        cached = _MENU_CACHE.get(business_id)
+        from django.core.cache import cache as _cache
+        cached = _cache.get(f"menu_{business_id}")
         if cached and not force_refresh:
             ts, cached_products = cached
             if _time.time() - ts < _MENU_CACHE_TTL:
@@ -1294,7 +1300,7 @@ class NonborMenuView(APIView):
 
         # Keshga saqlash
         if products:
-            _MENU_CACHE[business_id] = (_time.time(), products)
+            _cache.set(f"menu_{business_id}", (_time.time(), products), _MENU_CACHE_TTL)
 
         return Response({
             'success': True,
@@ -1521,8 +1527,8 @@ def _order_service_dict(s):
         'business_name': s.business_name,
         'service_name': s.service_name,
         'api_url': s.api_url,
-        'api_secret': s.api_secret[:4] + '****' if len(s.api_secret) > 4 else '****',
-        'bot_token': s.bot_token[:8] + '****' if len(s.bot_token) > 8 else '****',
+        'api_secret': (s.api_secret[:4] + '****') if s.api_secret and len(s.api_secret) > 4 else '****',
+        'bot_token': (s.bot_token[:8] + '****') if s.bot_token and len(s.bot_token) > 8 else '****',
         'poll_enabled': s.poll_enabled,
         'poll_interval': s.poll_interval,
         'last_poll_at': s.last_poll_at.isoformat() if s.last_poll_at else None,

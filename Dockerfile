@@ -10,9 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpq5 curl && 
 COPY --from=builder /install /usr/local
 COPY . .
 RUN mkdir -p /data /app/media /app/staticfiles
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 RUN adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app /data
 USER appuser
 EXPOSE 9000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD curl -f http://localhost:9000/api/v2/health/ || exit 1
-COPY docker-entrypoint.sh /docker-entrypoint.sh
 CMD ["/docker-entrypoint.sh"]
