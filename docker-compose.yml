@@ -65,6 +65,35 @@ services:
       start_period: 30s
       retries: 3
 
+  # =============================================================================
+  # Polling Worker — buyurtmalarni olish + cloud timeout tekshirish
+  # =============================================================================
+  worker:
+    build: .
+    container_name: xprinter-worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      xprinter:
+        condition: service_healthy
+    environment:
+      - DJANGO_SETTINGS_MODULE=settings
+      - PYTHONUNBUFFERED=1
+      - DEBUG=${DEBUG:-false}
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - DB_NAME=${DB_NAME:-xprinter}
+      - DB_USER=${DB_USER:-xprinter}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+    command: ["python", "manage.py", "poll_orders"]
+
 volumes:
   postgres_data:
   xprinter_data:
