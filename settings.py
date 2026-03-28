@@ -27,12 +27,14 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'printer.middleware.ApiKeyMiddleware',
 ]
 
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [
-    o.strip() for o in os.environ.get('CORS_ORIGINS', 'https://printer.nonbor.uz,https://admin.nonbor.uz').split(',')
+    o.strip() for o in os.environ.get('CORS_ORIGINS', 'https://printer.nonbor.uz,https://admin.nonbor.uz,http://localhost,http://localhost:80').split(',')
 ] if not DEBUG else []
+CORS_ALLOW_CREDENTIALS = True
 
 ROOT_URLCONF = 'urls'
 
