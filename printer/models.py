@@ -97,7 +97,7 @@ class NonborConfig(models.Model):
     )
     api_url = models.CharField(
         max_length=500,
-        default='https://test.nonbor.uz/api/v2',
+        default='https://prod.nonbor.uz/api/v2',
         help_text="Nonbor API URL"
     )
     api_secret = models.CharField(
