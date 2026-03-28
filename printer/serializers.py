@@ -78,10 +78,10 @@ class PrinterListSerializer(serializers.ModelSerializer):
         ]
 
     def get_categories_count(self, obj):
-        return obj.categories.count()
+        return getattr(obj, 'categories_count', obj.categories.count())
 
     def get_products_count(self, obj):
-        return obj.products.count()
+        return getattr(obj, 'products_count', obj.products.count())
 
     def get_connection_info(self, obj):
         if obj.connection_type in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI):
@@ -292,15 +292,22 @@ class WebhookSerializer(serializers.Serializer):
 # ============================================================
 
 class NonborConfigSerializer(serializers.ModelSerializer):
+    api_secret = serializers.SerializerMethodField()
+
     class Meta:
         model = NonborConfig
         fields = [
             'id', 'business_id', 'business_name',
-            'api_url', 'api_secret', 'seller_id',
+            'api_url', 'api_secret_masked', 'seller_id',
             'poll_enabled', 'poll_interval',
             'last_poll_at', 'is_active', 'created_at',
         ]
         read_only_fields = ['id', 'last_poll_at', 'created_at']
+
+    def get_api_secret(self, obj):
+        if obj.api_secret:
+            return obj.api_secret[:4] + '***' + obj.api_secret[-2:]
+        return ""
 
 
 class NonborConfigCreateSerializer(serializers.ModelSerializer):
@@ -330,6 +337,12 @@ class NonborConfigUpdateSerializer(serializers.ModelSerializer):
             'seller_id', 'poll_enabled', 'poll_interval', 'is_active',
         ]
 
+    def validate_api_secret(self, value):
+        # Masked qiymat qaytsa — eski qiymatni saqlash
+        if value and '***' in value:
+            return self.instance.api_secret if self.instance else value
+        return value
+
 
 # ============================================================
 # RECEIPT TEMPLATE SERIALIZERS
@@ -357,13 +370,20 @@ class ReceiptTemplateSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class NotificationConfigSerializer(serializers.ModelSerializer):
+    telegram_bot_token = serializers.SerializerMethodField()
+
     class Meta:
         model = NotificationConfig
         fields = [
             'id', 'business_id', 'business_name',
             'telegram_bot_token', 'telegram_chat_id', 'telegram_enabled',
-            'cloud_timeout_minutes', 'is_active', 'created_at',
+            'cloud_timeout_seconds', 'is_active', 'created_at',
         ]
+
+    def get_telegram_bot_token(self, obj):
+        if obj.telegram_bot_token:
+            return obj.telegram_bot_token[:8] + '***'
+        return ""
 
 class PrinterNotificationSerializer(serializers.ModelSerializer):
     class Meta:

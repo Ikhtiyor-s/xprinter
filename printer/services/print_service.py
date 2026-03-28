@@ -389,9 +389,11 @@ def send_to_network_printer(ip, port, data: bytes, timeout=5):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
-        sock.connect((ip, port))
-        sock.sendall(data)
-        sock.close()
+        try:
+            sock.connect((ip, port))
+            sock.sendall(data)
+        finally:
+            sock.close()
         return True, None
     except socket.timeout:
         return False, f"Printer javob bermadi (timeout {timeout}s): {ip}:{port}"

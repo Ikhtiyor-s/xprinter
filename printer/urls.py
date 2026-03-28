@@ -99,6 +99,12 @@ urlpatterns = [
     path('nonbor/poll-stop/<int:business_id>/', views.NonborPollStopView.as_view(), name='nonbor-poll-stop'),
 
     # ============================================================
+    # ADMIN AUTH (token login/logout)
+    # ============================================================
+    path('admin/login/', views.AdminTokenLoginView.as_view(), name='admin-login'),
+    path('admin/logout/', views.AdminTokenLogoutView.as_view(), name='admin-logout'),
+
+    # ============================================================
     # NOTIFICATIONS (Printer xatolik bildirishnomalari)
     # ============================================================
     path('notification/list/', views.NotificationListView.as_view(), name='notification-list'),

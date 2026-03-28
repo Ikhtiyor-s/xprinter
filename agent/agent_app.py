@@ -42,7 +42,25 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-SERVER_URL = "https://printer.nonbor.uz"
+# SERVER_URL env yoki config.ini dan o'qiladi
+def _resolve_server_url():
+    url = os.environ.get("XPRINTER_SERVER_URL", "")
+    if url: return url.rstrip("/")
+    try:
+        import configparser as _cp
+        _c = _cp.ConfigParser()
+        if CONFIG_FILE.exists():
+            _c.read(CONFIG_FILE, encoding="utf-8")
+            url = _c.get("settings", "server_url", fallback="")
+            if url: return url.rstrip("/")
+    except Exception: pass
+    _suf = BASE_DIR / "server_url.txt"
+    if _suf.exists():
+        url = _suf.read_text(encoding="utf-8").strip()
+        if url: return url.rstrip("/")
+    return ""
+
+SERVER_URL = _resolve_server_url()
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -135,7 +153,7 @@ def api_fetch_menu(server_url, username, password, business_id):
         logger.info(f"Menu fetch: {full} user={username} bid={business_id}")
         params = {'username': username, 'password': password}
         if HAS_REQ:
-            r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60, verify=False)
+            r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60)
             try: data = r.json()
             except: return False, [], f"Server xatosi ({r.status_code}): {r.text[:100]}"
         else:
@@ -144,8 +162,6 @@ def api_fetch_menu(server_url, username, password, business_id):
             req = urllib.request.Request(f"{full}?{qs}")
             req.add_header('ngrok-skip-browser-warning', 'true')
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read())
         if data.get('success'):
@@ -174,7 +190,7 @@ def api_sync_printer(server_url, username, password, printer_data):
             'product_names': printer_data.get('product_names', {}),
         }
         if HAS_REQ:
-            r = _req.post(full, json=payload, headers=_NGROK_HEADER, timeout=15, verify=False)
+            r = _req.post(full, json=payload, headers=_NGROK_HEADER, timeout=15)
             try: data = r.json()
             except: return False, None, f"Server xatosi ({r.status_code}): {r.text[:100]}"
         else:
@@ -184,8 +200,6 @@ def api_sync_printer(server_url, username, password, printer_data):
             req.add_header('ngrok-skip-browser-warning', 'true')
             import ssl
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read())
         if data.get('success'):
@@ -202,7 +216,7 @@ def api_agent_auth(server_url, username, password):
         full = f"{server_url}/api/v2/agent/auth/"
         if HAS_REQ:
             r = _req.post(full, json={'username': username, 'password': password},
-                          headers=_NGROK_HEADER, timeout=10, verify=False)
+                          headers=_NGROK_HEADER, timeout=10)
             text = r.text.strip()
             if not text:
                 return False, None, None, "Server bo'sh javob qaytardi (server ishlamayapti?)"
@@ -215,8 +229,6 @@ def api_agent_auth(server_url, username, password):
             req.add_header('ngrok-skip-browser-warning', 'true')
             import ssl
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
                 raw = resp.read()
                 if not raw.strip(): return False, None, None, "Server bo'sh javob qaytardi"
@@ -282,11 +294,9 @@ def _get(url, u, p, path, params=None):
     full = f"{url.rstrip('/')}/api/v2/{path}"
     if params: full += '?' + '&'.join(f'{k}={v}' for k,v in params.items())
     if HAS_REQ:
-        return _req.get(full, auth=(u, p), headers=_NGROK_HEADER, timeout=10, verify=False).json()
+        return _req.get(full, auth=(u, p), headers=_NGROK_HEADER, timeout=10).json()
     import ssl
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(full)
     req.add_header('Authorization', 'Basic ' + base64.b64encode(f'{u}:{p}'.encode()).decode())
     req.add_header('ngrok-skip-browser-warning', 'true')
@@ -295,11 +305,9 @@ def _get(url, u, p, path, params=None):
 def _post(url, u, p, path, data):
     full = f"{url.rstrip('/')}/api/v2/{path}"
     if HAS_REQ:
-        return _req.post(full, json=data, auth=(u, p), headers=_NGROK_HEADER, timeout=10, verify=False).json()
+        return _req.post(full, json=data, auth=(u, p), headers=_NGROK_HEADER, timeout=10).json()
     import ssl
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     body = json.dumps(data).encode()
     req = urllib.request.Request(full, data=body, method='POST')
     req.add_header('Authorization', 'Basic ' + base64.b64encode(f'{u}:{p}'.encode()).decode())
@@ -316,7 +324,9 @@ def local_printers():
         except: pass
     return []
 
-DRIVERS_DIR = BASE_DIR / 'drivers'
+# PyInstaller --onefile: drayverlar sys._MEIPASS ichida yoki BASE_DIR/drivers da
+_BUNDLE_DIR = Path(getattr(sys, '_MEIPASS', BASE_DIR))
+DRIVERS_DIR = _BUNDLE_DIR / 'drivers' if (_BUNDLE_DIR / 'drivers').exists() else BASE_DIR / 'drivers'
 
 def get_available_usb_ports():
     """Windows USB Monitor portlarini olish (USB001, USB002, ...)"""
@@ -378,7 +388,7 @@ def install_printer_with_driver(port_name, printer_name, driver_name="Generic / 
     try:
         cmd = (f'rundll32 printui.dll,PrintUIEntry /if '
                f'/b "{printer_name}" /r "{port_name}" /m "{driver_name}"')
-        r = sp.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        r = sp.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
             logger.info(f"Printer o'rnatildi: {printer_name} ({port_name}) [{driver_name}]")
             return True, None
@@ -409,11 +419,18 @@ def detect_and_install_printers():
     messages = []
     installed_printers = []
 
-    # 1. Avval mavjud printerlarni tekshirish
+    # 1. Avval mavjud printerlarni tekshirish (virtual printerlarni filtrlash)
+    VIRTUAL = {'onenote', 'microsoft print to pdf', 'microsoft xps', 'fax',
+               'send to onenote', 'pdf-xchange', 'adobe pdf', 'foxit'}
     existing = local_printers()
-    if existing:
-        messages.append(f"✓ {len(existing)} ta printer allaqachon mavjud: {', '.join(existing)}")
+    real_printers = [p for p in existing
+                     if not any(v in p.lower() for v in VIRTUAL)]
+    if real_printers:
+        messages.append(f"✓ {len(real_printers)} ta printer topildi: {', '.join(real_printers)}")
         return installed_printers, messages
+    if existing:
+        messages.append(f"ℹ Faqat virtual printerlar topildi: {', '.join(existing)}")
+        messages.append("Haqiqiy printer (XPrinter) topilmadi — drayver o'rnatiladi...")
 
     # 2. drivers/ papkadan drayverlarni o'rnatish
     if DRIVERS_DIR.exists() and list(DRIVERS_DIR.glob('**/*.inf')):
@@ -465,11 +482,35 @@ def detect_and_install_printers():
         messages.append(f"✓ Printerlar: {', '.join(final)}")
 
     if not final and not installed_printers:
-        messages.append("\n❌ Printer o'rnatib bo'lmadi.\n"
-                        "Printer drayveri topilmadi.\n\n"
-                        "Drayver yuklab olish:\n"
-                        "  https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download\n\n"
-                        "Printeringiz modelini tanlang va drayverni o'rnating.")
+        # Bundled drayver bormi tekshirish
+        driver_exe = None
+        if DRIVERS_DIR.exists():
+            for ext in ('*.exe', '*.EXE'):
+                for f in DRIVERS_DIR.glob(ext):
+                    driver_exe = f
+                    break
+                if driver_exe:
+                    break
+        if driver_exe:
+            messages.append(f"📦 Drayver topildi: {driver_exe.name}")
+            messages.append("Drayver o'rnatish oynasi ochilmoqda...")
+            try:
+                import subprocess
+                subprocess.Popen([str(driver_exe)], shell=False)
+                messages.append("✓ Drayver o'rnatuvchi ishga tushdi!")
+                messages.append("O'rnatib bo'lgach 'Avtomatik topish' qayta bosing")
+            except Exception as e:
+                messages.append(f"⚠ Drayver ishga tushmadi: {e}")
+        else:
+            messages.append("❌ Printer topilmadi!")
+            messages.append("Drayver yuklab o'rnating:")
+            try:
+                import webbrowser
+                webbrowser.open("https://www.xprintertech.com/all-products/thermal-receipt-printer-driver-download")
+                messages.append("Brauzerda drayver sahifasi ochildi")
+            except Exception:
+                messages.append("https://www.xprintertech.com drayver yuklab o'rnating")
+            messages.append("O'rnatib bo'lgach 'Avtomatik topish' qayta bosing")
 
     return installed_printers, messages
 
@@ -481,7 +522,7 @@ _LFT=b'\x1b\x61\x00'; _CTR=b'\x1b\x61\x01'; _RGT=b'\x1b\x61\x02'
 _DBL=b'\x1d\x21\x11'; _NRM=b'\x1d\x21\x00'  # double / normal font
 
 def escpos(text, w=80):
-    cw = 42 if w==80 else 32
+    cw = 48 if w==80 else 32
     out = bytearray(_I + _MARGIN0)
     for line in text.split('\n'):
         stripped = line.strip()
@@ -589,7 +630,7 @@ class Agent:
 
     def reload(self):
         c = load_config()
-        self.server_url    = SERVER_URL
+        self.server_url    = _cfg_get(c, "settings", "server_url", "") or SERVER_URL
         self.business_id   = _cfg_get(c,'business','id','')
         self.business_name = _cfg_get(c,'business','name','')
         self.username      = _cfg_get(c,'auth','username','')

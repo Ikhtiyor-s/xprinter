@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.hashers import make_password, check_password as django_check_password
 from django.utils import timezone
 
 
@@ -96,12 +97,12 @@ class NonborConfig(models.Model):
     )
     api_url = models.CharField(
         max_length=500,
-        default='https://test.nonbor.uz/api/v2',
+        default='https://prod.nonbor.uz/api/v2',
         help_text="Nonbor API URL"
     )
     api_secret = models.CharField(
         max_length=200,
-        default='nonbor-secret-key',
+        default='',
         blank=True,
         help_text="X-Telegram-Bot-Secret header qiymati"
     )
@@ -202,7 +203,7 @@ class AgentCredential(models.Model):
     )
     password = models.CharField(
         max_length=200,
-        help_text="Agent parol (sodda matn)"
+        help_text="Agent parol (hashed)"
     )
     is_active = models.BooleanField(default=True)
     note = models.CharField(
@@ -219,8 +220,17 @@ class AgentCredential(models.Model):
     def __str__(self):
         return f"{self.username} → Biznes #{self.business_id} ({self.business_name})"
 
+    def set_password(self, raw_password: str):
+        self.password = make_password(raw_password)
+
     def check_password(self, raw: str) -> bool:
-        return self.password == raw
+        return django_check_password(raw, self.password)
+
+    def save(self, *args, **kwargs):
+        # Yangi parol yoki plaintext parol bo'lsa — hash qilish
+        if self.password and not self.password.startswith(('pbkdf2_sha256$', 'argon2$', 'bcrypt$')):
+            self.password = make_password(self.password)
+        super().save(*args, **kwargs)
 
 
 class NotificationConfig(models.Model):
@@ -246,9 +256,9 @@ class NotificationConfig(models.Model):
         default=False,
         help_text="Telegram xabar yuborish yoqilganmi"
     )
-    cloud_timeout_minutes = models.IntegerField(
-        default=5,
-        help_text="Cloud printer javob berish vaqti (daqiqa)"
+    cloud_timeout_seconds = models.IntegerField(
+        default=20,
+        help_text="Cloud printer javob berish vaqti (sekund). Default: 20"
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -536,3 +546,33 @@ class ReceiptTemplate(models.Model):
 
     def __str__(self):
         return f"Chek shablon → Biznes #{self.business_id} ({self.get_template_type_display()})"
+
+
+class SellerProfile(models.Model):
+    """Seller profili — Django User va business_id bog'lash.
+    Har bir seller faqat o'z biznesining ma'lumotlarini ko'radi.
+    is_superadmin=True bo'lsa barcha bizneslarni ko'radi."""
+
+    user = models.OneToOneField(
+        'auth.User',
+        on_delete=models.CASCADE,
+        related_name='seller_profile',
+    )
+    business_id = models.IntegerField(
+        db_index=True,
+        help_text="Seller bog'langan biznes ID",
+    )
+    business_name = models.CharField(
+        max_length=200, blank=True, default='',
+    )
+    is_superadmin = models.BooleanField(
+        default=False,
+        help_text="True bo'lsa barcha bizneslarni ko'radi (master admin)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'seller_profile'
+
+    def __str__(self):
+        return f"{self.user.username} -> Biznes #{self.business_id} ({self.business_name})"

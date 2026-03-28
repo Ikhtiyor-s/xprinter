@@ -9,7 +9,7 @@ TEMPLATES = [
         'description': 'Nonbor POS tizimi orqali buyurtmalar',
         'icon': '🛒',
         'color': '#1890ff',
-        'base_api_url': 'https://test.nonbor.uz/api/v2',
+        'base_api_url': 'https://prod.nonbor.uz/api/v2',
         'default_poll_interval': 5,
         'sort_order': 1,
     },

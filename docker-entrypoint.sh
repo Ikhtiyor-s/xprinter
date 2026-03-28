@@ -1,21 +1,35 @@
 #!/bin/bash
 set -e
 
-# Symlink bo'lsa o'chirish
-if [ -L /app/db.sqlite3 ]; then
-    rm /app/db.sqlite3
+# Security checks
+if [ "$DEBUG" != "true" ] && [ "$DEBUG" != "True" ] && [ "$DEBUG" != "1" ]; then
+    if [ -z "$SECRET_KEY" ]; then
+        echo "ERROR: SECRET_KEY is not set. Exiting."
+        exit 1
+    fi
+    if [ -z "$ALLOWED_HOSTS" ] || [ "$ALLOWED_HOSTS" = "*" ]; then
+        echo "ERROR: ALLOWED_HOSTS must be set (not *). Exiting."
+        exit 1
+    fi
+    if [ -z "$WEBHOOK_SECRET" ]; then
+        echo "ERROR: WEBHOOK_SECRET is not set. Exiting."
+        exit 1
+    fi
 fi
 
-# Migratsiyalarni qo'llash (mavjud DB ga zarar bermaydi)
 echo "Migratsiyalar tekshirilmoqda..."
 python manage.py migrate --settings=settings --run-syncdb 2>/dev/null || python manage.py migrate --settings=settings
-
 python manage.py collectstatic --noinput 2>/dev/null || true
 
+# Admin superuser yaratish (agar hali yo'q bo'lsa)
+if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then
+    python manage.py createsuperuser --noinput 2>/dev/null || true
+fi
+
 if [ "$DEBUG" = "true" ] || [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ]; then
-    echo "DEV server ishga tushmoqda: 0.0.0.0:9000"
+    echo "DEV server: 0.0.0.0:9000"
     exec python manage.py runserver 0.0.0.0:9000 --settings=settings
 else
-    echo "PROD server ishga tushmoqda: gunicorn 0.0.0.0:9000"
-    exec gunicorn wsgi:application --bind 0.0.0.0:9000 --workers 3 --timeout 120 --access-logfile - --error-logfile -
+    echo "PROD server: gunicorn 0.0.0.0:9000"
+    exec gunicorn wsgi:application         --bind 0.0.0.0:9000         --workers "${GUNICORN_WORKERS:-3}"         --timeout 30         --graceful-timeout 10         --keep-alive 5         --max-requests 1000         --max-requests-jitter 50         --access-logfile -         --error-logfile -
 fi
