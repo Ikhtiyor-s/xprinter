@@ -34,3 +34,15 @@ agent/build/
 .idea/
 .vscode/
 *.swp
+
+# Mobile (Flutter)
+mobile/.dart_tool/
+mobile/build/
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/local.properties
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/pubspec.lock
+*.apk
