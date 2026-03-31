@@ -25,14 +25,13 @@ from .authentication import (
     get_seller_business_id,
     enforce_business_id,
 )
-from .models import SellerProfile
-
-from .models import (
+from printer.models import SellerProfile
+from printer.models import (
     Printer, PrinterCategory, PrinterProduct, PrintJob,
     NonborConfig, AgentCredential, IntegrationTemplate, OrderService,
     ReceiptTemplate, NotificationConfig, PrinterNotification,
 )
-from .serializers import (
+from printer.serializers import (
     PrinterCreateSerializer,
     PrinterUpdateSerializer,
     PrinterListSerializer,
@@ -53,13 +52,13 @@ from .serializers import (
     NotificationConfigSerializer,
     PrinterNotificationSerializer,
 )
-from .services.print_service import (
+from printer.services.print_service import (
     print_order,
     retry_print_job,
     send_test_print,
     detect_system_printers,
 )
-from .services.nonbor_api import NonborAPI, poll_and_print
+from printer.services.nonbor_api import NonborAPI, poll_and_print
 
 logger = logging.getLogger(__name__)
 

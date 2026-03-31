@@ -25,14 +25,14 @@ from .authentication import (
     get_seller_business_id,
     enforce_business_id,
 )
-from .models import SellerProfile
+from printer.models import SellerProfile
 
-from .models import (
+from printer.models import (
     Printer, PrinterCategory, PrinterProduct, PrintJob,
     NonborConfig, AgentCredential, IntegrationTemplate, OrderService,
     ReceiptTemplate, NotificationConfig, PrinterNotification,
 )
-from .serializers import (
+from printer.serializers import (
     PrinterCreateSerializer,
     PrinterUpdateSerializer,
     PrinterListSerializer,
@@ -53,13 +53,13 @@ from .serializers import (
     NotificationConfigSerializer,
     PrinterNotificationSerializer,
 )
-from .services.print_service import (
+from printer.services.print_service import (
     print_order,
     retry_print_job,
     send_test_print,
     detect_system_printers,
 )
-from .services.nonbor_api import NonborAPI, poll_and_print
+from printer.services.nonbor_api import NonborAPI, poll_and_print
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +313,7 @@ class NonborPollAllView(APIView):
 
     def post(self, request):
         # Faqat aktiv, poll_enabled va printerli bizneslar
-        from .models import Printer as PrinterModel
+        from printer.models import Printer as PrinterModel
         biz_with_printers = set(
             PrinterModel.objects.filter(is_active=True)
             .values_list('business_id', flat=True)
@@ -358,8 +358,8 @@ class NonborPollAllView(APIView):
                 })
 
         # 2) Tashqi tizimlardan polling (Telegram, Yandex, Uzum, Express24, iiko va h.k.)
-        from .services.nonbor_api import poll_and_print_service
-        from .models import OrderService as OrderServiceModel
+        from printer.services.nonbor_api import poll_and_print_service
+        from printer.models import OrderService as OrderServiceModel
 
         ext_services = OrderServiceModel.objects.filter(
             is_active=True,

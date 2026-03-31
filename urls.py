@@ -8,8 +8,8 @@ urlpatterns = [
     path("", agent_dashboard, name="agent-home"),
     path("agent/", agent_dashboard, name="agent-dashboard"),
     path("admin/", admin.site.urls),
-    path("api/v2/", include("printer.urls")),
     path("api/v2/health/", HealthCheckView.as_view(), name="health-check"),
+    path("api/v2/", include("printer.urls")),
 ]
 
 if settings.DEBUG:
