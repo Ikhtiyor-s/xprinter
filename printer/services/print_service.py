@@ -173,6 +173,25 @@ class ReceiptBuilder:
 # RECEIPT FORMATLASH
 # ============================================================
 
+def _render_items_block(rb, items):
+    """Mahsulotlar + modifierlarni chekka yozish. Jami summani qaytaradi."""
+    total = 0
+    for item in items:
+        name = item.get('name', 'Nomsiz')
+        qty = int(item.get('quantity', 1))
+        price = float(item.get('price', 0))
+        item_total = qty * price
+        total += item_total
+        rb.add_item_line(name, qty, item_total)
+        for mod in item.get('modifiers', []):
+            mod_name = mod.get('name', '')
+            mod_qty = int(mod.get('quantity', 1))
+            mod_price = float(mod.get('price', 0))
+            mod_total = mod_qty * mod_price
+            total += mod_total
+            rb.add_modifier_line(mod_name, mod_qty, mod_total)
+    return total
+
 # Buyurtma turini ReceiptTemplate.template_type ga moslashtirish
 _ORDER_TYPE_MAP = {
     'DELIVERY': 'delivery',
@@ -281,58 +300,17 @@ def build_kitchen_receipt(printer, order_data, items, other_printer_items=None, 
         # Admin printer — faqat boshqa printerlar bo'yicha guruhlangan ro'yxat
         for other_name, other_items in other_printer_items.items():
             rb.add_text(f"[ {other_name} ]", bold=True, center=True)
-            for item in other_items:
-                name = item.get('name', 'Nomsiz')
-                qty = int(item.get('quantity', 1))
-                price = float(item.get('price', 0))
-                item_total = qty * price
-                grand_total += item_total
-                rb.add_item_line(name, qty, item_total)
-                for mod in item.get('modifiers', []):
-                    mod_name = mod.get('name', '')
-                    mod_qty = int(mod.get('quantity', 1))
-                    mod_price = float(mod.get('price', 0))
-                    mod_total = mod_qty * mod_price
-                    grand_total += mod_total
-                    rb.add_modifier_line(mod_name, mod_qty, mod_total)
+            grand_total += _render_items_block(rb, other_items)
     else:
         # Oddiy printer — o'z mahsulotlari printer nomi bilan
         rb.add_text(f"[ {printer.name} ]", bold=True, center=True)
-
-        for item in items:
-            name = item.get('name', 'Nomsiz')
-            qty = int(item.get('quantity', 1))
-            price = float(item.get('price', 0))
-            item_total = qty * price
-            grand_total += item_total
-            rb.add_item_line(name, qty, item_total)
-
-            for mod in item.get('modifiers', []):
-                mod_name = mod.get('name', '')
-                mod_qty = int(mod.get('quantity', 1))
-                mod_price = float(mod.get('price', 0))
-                mod_total = mod_qty * mod_price
-                grand_total += mod_total
-                rb.add_modifier_line(mod_name, mod_qty, mod_total)
+        grand_total += _render_items_block(rb, items)
 
         # Boshqa printerlarning mahsulotlari
         if other_printer_items and show_other:
             for other_name, other_items in other_printer_items.items():
                 rb.add_text(f"[ {other_name} ]", bold=True, center=True)
-                for item in other_items:
-                    name = item.get('name', 'Nomsiz')
-                    qty = int(item.get('quantity', 1))
-                    price = float(item.get('price', 0))
-                    item_total = qty * price
-                    grand_total += item_total
-                    rb.add_item_line(name, qty, item_total)
-                    for mod in item.get('modifiers', []):
-                        mod_name = mod.get('name', '')
-                        mod_qty = int(mod.get('quantity', 1))
-                        mod_price = float(mod.get('price', 0))
-                        mod_total = mod_qty * mod_price
-                        grand_total += mod_total
-                        rb.add_modifier_line(mod_name, mod_qty, mod_total)
+                grand_total += _render_items_block(rb, other_items)
 
     # JAMI — eng oxirida
     rb.add_line()
@@ -594,6 +572,46 @@ def detect_system_printers():
 
 
 # ============================================================
+# JOB YARATISH VA YUBORISH
+# ============================================================
+
+def _create_and_send_job(printer, receipt, order_data, items_data, business_id):
+    """PrintJob yaratish, printerga yuborish, natijani qayd qilish."""
+    job = PrintJob.objects.create(
+        printer=printer,
+        order_id=order_data.get('order_id', 0),
+        business_id=business_id,
+        status=PrintJob.STATUS_PENDING,
+        content=receipt.get_text(),
+        items_data=items_data,
+    )
+
+    result, error = send_to_printer(printer, receipt.get_bytes())
+    order_id = order_data.get('order_id')
+
+    if result == 'cloud':
+        logger.info(f"Buyurtma #{order_id} -> {printer.name}: agent kutilmoqda")
+    elif result:
+        job.mark_completed()
+        logger.info(f"Buyurtma #{order_id} -> {printer.name}: chop etildi")
+    else:
+        job.mark_failed(error)
+        logger.error(f"Buyurtma #{order_id} -> {printer.name}: XATOLIK - {error}")
+        _notify_failure(job, error)
+
+    return job
+
+
+def _notify_failure(job, error):
+    """Print job xatoligini bildirishnoma sifatida yuborish"""
+    try:
+        from .notification_service import notify_print_failure
+        notify_print_failure(job, error)
+    except Exception as e:
+        logger.error(f"Bildirishnoma yuborib bo'lmadi: {e}")
+
+
+# ============================================================
 # ASOSIY PRINT SERVICE
 # ============================================================
 
@@ -724,43 +742,13 @@ def print_order(order_data, items, business_id):
             printer, order_data, p_items, other_printer_items, template=template
         )
 
-        job = PrintJob.objects.create(
-            printer=printer,
-            order_id=order_data.get('order_id', 0),
-            business_id=business_id,
-            status=PrintJob.STATUS_PENDING,
-            content=receipt.get_text(),
-            items_data=p_items,
-        )
-
-        result, error = send_to_printer(printer, receipt.get_bytes())
-
-        if result == 'cloud':
-            printer_results[printer.name] = 'pending'
-            logger.info(
-                f"Buyurtma #{order_data.get('order_id')} -> "
-                f"{printer.name}: agent kutilmoqda ({len(p_items)} ta taom)"
-            )
-        elif result:
-            job.mark_completed()
-            printer_results[printer.name] = 'ok'
-            logger.info(
-                f"Buyurtma #{order_data.get('order_id')} -> "
-                f"{printer.name}: {len(p_items)} ta taom chop etildi"
-            )
-        else:
-            job.mark_failed(error)
+        job = _create_and_send_job(printer, receipt, order_data, p_items, business_id)
+        if job.status == PrintJob.STATUS_FAILED:
             printer_results[printer.name] = 'failed'
-            logger.error(
-                f"Buyurtma #{order_data.get('order_id')} -> "
-                f"{printer.name}: XATOLIK - {error}"
-            )
-            try:
-                from .notification_service import notify_print_failure
-                notify_print_failure(job, error)
-            except Exception as e:
-                logger.error(f"Bildirishnoma yuborib bo'lmadi: {e}")
-
+        elif job.status == PrintJob.STATUS_PENDING:
+            printer_results[printer.name] = 'pending'
+        else:
+            printer_results[printer.name] = 'ok'
         print_jobs.append(job)
 
     # 5b. Admin printerlar — barcha maxsulotlar printer nomlari bilan
@@ -778,53 +766,17 @@ def print_order(order_data, items, business_id):
                 continue
             other_printer = printers.get(other_pid)
             if other_printer and not other_printer.is_admin:
-                status = printer_results.get(other_printer.name, 'pending')
-                status_suffix = ''
-                if status == 'failed':
-                    status_suffix = ' - CHOP ETILMADI!'
-                elif status == 'pending':
-                    status_suffix = ' - kutilmoqda'
-                key = f"{other_printer.name}{status_suffix}"
-                admin_other[key] = other_items
+                pr_status = printer_results.get(other_printer.name, 'pending')
+                suffix = {
+                    'failed': ' - CHOP ETILMADI!',
+                    'pending': ' - kutilmoqda',
+                }.get(pr_status, '')
+                admin_other[f"{other_printer.name}{suffix}"] = other_items
 
         receipt = build_kitchen_receipt(
             printer, order_data, p_items, admin_other, template=admin_template
         )
-
-        job = PrintJob.objects.create(
-            printer=printer,
-            order_id=order_data.get('order_id', 0),
-            business_id=business_id,
-            status=PrintJob.STATUS_PENDING,
-            content=receipt.get_text(),
-            items_data=p_items,
-        )
-
-        result, error = send_to_printer(printer, receipt.get_bytes())
-
-        if result == 'cloud':
-            logger.info(
-                f"Buyurtma #{order_data.get('order_id')} -> "
-                f"{printer.name} (admin): agent kutilmoqda"
-            )
-        elif result:
-            job.mark_completed()
-            logger.info(
-                f"Buyurtma #{order_data.get('order_id')} -> "
-                f"{printer.name} (admin): chop etildi"
-            )
-        else:
-            job.mark_failed(error)
-            logger.error(
-                f"Buyurtma #{order_data.get('order_id')} -> "
-                f"{printer.name} (admin): XATOLIK - {error}"
-            )
-            try:
-                from .notification_service import notify_print_failure
-                notify_print_failure(job, error)
-            except Exception as e:
-                logger.error(f"Bildirishnoma yuborib bo'lmadi: {e}")
-
+        job = _create_and_send_job(printer, receipt, order_data, p_items, business_id)
         print_jobs.append(job)
 
     return print_jobs
@@ -859,11 +811,7 @@ def retry_print_job(job: PrintJob):
         return True, None
     else:
         job.mark_failed(error)
-        try:
-            from .notification_service import notify_print_failure
-            notify_print_failure(job, error)
-        except Exception as e:
-            logger.error(f"Bildirishnoma yuborib bo'lmadi: {e}")
+        _notify_failure(job, error)
         return False, error
 
 

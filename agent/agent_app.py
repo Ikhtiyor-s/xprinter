@@ -42,25 +42,7 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-# SERVER_URL env yoki config.ini dan o'qiladi
-def _resolve_server_url():
-    url = os.environ.get("XPRINTER_SERVER_URL", "")
-    if url: return url.rstrip("/")
-    try:
-        import configparser as _cp
-        _c = _cp.ConfigParser()
-        if CONFIG_FILE.exists():
-            _c.read(CONFIG_FILE, encoding="utf-8")
-            url = _c.get("settings", "server_url", fallback="")
-            if url: return url.rstrip("/")
-    except Exception: pass
-    _suf = BASE_DIR / "server_url.txt"
-    if _suf.exists():
-        url = _suf.read_text(encoding="utf-8").strip()
-        if url: return url.rstrip("/")
-    return ""
-
-SERVER_URL = _resolve_server_url()
+SERVER_URL = "http://192.168.1.19:9090"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -153,7 +135,7 @@ def api_fetch_menu(server_url, username, password, business_id):
         logger.info(f"Menu fetch: {full} user={username} bid={business_id}")
         params = {'username': username, 'password': password}
         if HAS_REQ:
-            r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60)
+            r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60, verify=False)
             try: data = r.json()
             except: return False, [], f"Server xatosi ({r.status_code}): {r.text[:100]}"
         else:
@@ -162,6 +144,8 @@ def api_fetch_menu(server_url, username, password, business_id):
             req = urllib.request.Request(f"{full}?{qs}")
             req.add_header('ngrok-skip-browser-warning', 'true')
             ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read())
         if data.get('success'):
@@ -190,7 +174,7 @@ def api_sync_printer(server_url, username, password, printer_data):
             'product_names': printer_data.get('product_names', {}),
         }
         if HAS_REQ:
-            r = _req.post(full, json=payload, headers=_NGROK_HEADER, timeout=15)
+            r = _req.post(full, json=payload, headers=_NGROK_HEADER, timeout=15, verify=False)
             try: data = r.json()
             except: return False, None, f"Server xatosi ({r.status_code}): {r.text[:100]}"
         else:
@@ -200,6 +184,8 @@ def api_sync_printer(server_url, username, password, printer_data):
             req.add_header('ngrok-skip-browser-warning', 'true')
             import ssl
             ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read())
         if data.get('success'):
@@ -216,7 +202,7 @@ def api_agent_auth(server_url, username, password):
         full = f"{server_url}/api/v2/agent/auth/"
         if HAS_REQ:
             r = _req.post(full, json={'username': username, 'password': password},
-                          headers=_NGROK_HEADER, timeout=10)
+                          headers=_NGROK_HEADER, timeout=10, verify=False)
             text = r.text.strip()
             if not text:
                 return False, None, None, "Server bo'sh javob qaytardi (server ishlamayapti?)"
@@ -229,6 +215,8 @@ def api_agent_auth(server_url, username, password):
             req.add_header('ngrok-skip-browser-warning', 'true')
             import ssl
             ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
                 raw = resp.read()
                 if not raw.strip(): return False, None, None, "Server bo'sh javob qaytardi"
@@ -294,9 +282,11 @@ def _get(url, u, p, path, params=None):
     full = f"{url.rstrip('/')}/api/v2/{path}"
     if params: full += '?' + '&'.join(f'{k}={v}' for k,v in params.items())
     if HAS_REQ:
-        return _req.get(full, auth=(u, p), headers=_NGROK_HEADER, timeout=10).json()
+        return _req.get(full, auth=(u, p), headers=_NGROK_HEADER, timeout=10, verify=False).json()
     import ssl
     ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(full)
     req.add_header('Authorization', 'Basic ' + base64.b64encode(f'{u}:{p}'.encode()).decode())
     req.add_header('ngrok-skip-browser-warning', 'true')
@@ -305,9 +295,11 @@ def _get(url, u, p, path, params=None):
 def _post(url, u, p, path, data):
     full = f"{url.rstrip('/')}/api/v2/{path}"
     if HAS_REQ:
-        return _req.post(full, json=data, auth=(u, p), headers=_NGROK_HEADER, timeout=10).json()
+        return _req.post(full, json=data, auth=(u, p), headers=_NGROK_HEADER, timeout=10, verify=False).json()
     import ssl
     ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     body = json.dumps(data).encode()
     req = urllib.request.Request(full, data=body, method='POST')
     req.add_header('Authorization', 'Basic ' + base64.b64encode(f'{u}:{p}'.encode()).decode())
@@ -388,7 +380,7 @@ def install_printer_with_driver(port_name, printer_name, driver_name="Generic / 
     try:
         cmd = (f'rundll32 printui.dll,PrintUIEntry /if '
                f'/b "{printer_name}" /r "{port_name}" /m "{driver_name}"')
-        r = sp.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
+        r = sp.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
             logger.info(f"Printer o'rnatildi: {printer_name} ({port_name}) [{driver_name}]")
             return True, None
@@ -496,7 +488,7 @@ def detect_and_install_printers():
             messages.append("Drayver o'rnatish oynasi ochilmoqda...")
             try:
                 import subprocess
-                subprocess.Popen([str(driver_exe)], shell=False)
+                subprocess.Popen([str(driver_exe)], shell=True)
                 messages.append("✓ Drayver o'rnatuvchi ishga tushdi!")
                 messages.append("O'rnatib bo'lgach 'Avtomatik topish' qayta bosing")
             except Exception as e:
@@ -630,7 +622,7 @@ class Agent:
 
     def reload(self):
         c = load_config()
-        self.server_url    = _cfg_get(c, "settings", "server_url", "") or SERVER_URL
+        self.server_url    = _cfg_get(c,'settings','server_url', SERVER_URL)
         self.business_id   = _cfg_get(c,'business','id','')
         self.business_name = _cfg_get(c,'business','name','')
         self.username      = _cfg_get(c,'auth','username','')
@@ -1594,6 +1586,14 @@ class SettingsWindow:
         tk.Label(title_f, text=S('login_subtitle'),
                  font=('Segoe UI',9), fg=T('FGD'), bg=T('CARD')).pack(anchor='w')
 
+        # Server URL
+        tk.Label(card, text='Server URL', font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'),
+                 anchor='w').pack(fill='x')
+        self._l_url = tk.Entry(card, font=('Segoe UI',10), bg=T('BG2'), fg=T('FG'),
+                                insertbackground=T('FG'), relief='solid', bd=1)
+        self._l_url.insert(0, self.agent.server_url)
+        self._l_url.pack(fill='x', pady=(3,12), ipady=3)
+
         # Login label + input
         tk.Label(card, text=S('login'), font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'),
                  anchor='w').pack(fill='x')
@@ -1652,7 +1652,7 @@ class SettingsWindow:
     def _do_login(self):
         u = self._l_user.get().strip()
         p = self._l_pass.get().strip()
-        url = SERVER_URL
+        url = self._l_url.get().strip() or SERVER_URL
         if not u or not p:
             self._l_err.config(text=S('login_error'))
             return
