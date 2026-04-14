@@ -42,7 +42,7 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-SERVER_URL = "http://192.168.1.19:9090"
+NONBOR_BASE = "https://prod.nonbor.uz/api/v2"
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -72,8 +72,6 @@ except ImportError:
 
 try:
     import requests as _req
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     HAS_REQ = True
 except ImportError:
     HAS_REQ = False
@@ -94,17 +92,16 @@ def load_config():
 
 def save_config(a):
     c = configparser.ConfigParser()
-    c['business'] = {'id': a.business_id, 'name': getattr(a, 'business_name', '')}
-    c['auth']     = {'username': a.username, 'password': a.password}
+    c['business'] = {'id': str(a.seller_id), 'name': getattr(a, 'business_name', '')}
+    c['auth']     = {'api_secret': a.api_secret}
     c['settings'] = {'poll_interval': str(a.poll_interval),
-                     'server_url': a.server_url,
                      'theme': _current_theme,
                      'language': _current_lang}
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f: c.write(f)
 
 def is_logged_in():
     c = load_config()
-    return bool(_cfg_get(c, 'auth', 'username') and _cfg_get(c, 'business', 'id'))
+    return bool(_cfg_get(c, 'auth', 'api_secret') and _cfg_get(c, 'business', 'id'))
 
 def do_logout():
     """Faqat config o'chiriladi, printer sozlamalari saqlanib qoladi"""
@@ -196,36 +193,35 @@ def api_sync_printer(server_url, username, password, printer_data):
         return False, None, str(e)
 
 
-def api_agent_auth(server_url, username, password):
-    """POST /api/v2/agent/auth/ → (ok, business_id, business_name, error)"""
+def _nonbor_get(path, api_secret, params=None, timeout=10):
+    """Nonbor prod API ga GET so'rov (X-Telegram-Bot-Secret auth)"""
+    url = f"{NONBOR_BASE}/{path}"
+    hdrs = {'X-Telegram-Bot-Secret': api_secret, 'Accept': 'application/json'}
+    if HAS_REQ:
+        return _req.get(url, headers=hdrs, params=params, timeout=timeout, verify=False).json()
+    import ssl, urllib.parse as _up
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    if params: url += '?' + _up.urlencode(params)
+    req = urllib.request.Request(url)
+    for k, v in hdrs.items(): req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        return json.loads(r.read())
+
+
+def api_agent_auth(seller_id, api_secret):
+    """Nonbor API: sellers/{id}/orders/ tekshirib autentifikatsiya qilish"""
     try:
-        full = f"{server_url}/api/v2/agent/auth/"
-        if HAS_REQ:
-            r = _req.post(full, json={'username': username, 'password': password},
-                          headers=_NGROK_HEADER, timeout=10, verify=False)
-            text = r.text.strip()
-            if not text:
-                return False, None, None, "Server bo'sh javob qaytardi (server ishlamayapti?)"
-            try: data = r.json()
-            except Exception: return False, None, None, f"Server xatosi ({r.status_code}): {text[:80]}"
-        else:
-            body = json.dumps({'username': username, 'password': password}).encode()
-            req = urllib.request.Request(full, data=body, method='POST')
-            req.add_header('Content-Type', 'application/json')
-            req.add_header('ngrok-skip-browser-warning', 'true')
-            import ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
-                raw = resp.read()
-                if not raw.strip(): return False, None, None, "Server bo'sh javob qaytardi"
-                data = json.loads(raw)
-        if data.get('success'):
-            return True, str(data['business_id']), data.get('business_name', ''), None
-        return False, None, None, data.get('error', 'Login yoki parol noto\'g\'ri')
-    except Exception as e:
-        return False, None, None, str(e)
+        seller_id  = str(seller_id).strip()
+        api_secret = str(api_secret).strip()
+        if not seller_id or not api_secret:
+            return False, None, None, "Login yoki parol noto'g'ri."
+        data = _nonbor_get(f"telegram_bot/sellers/{seller_id}/orders/", api_secret)
+        if 'result' in data or data.get('success') is True:
+            return True, seller_id, f"Seller #{seller_id}", None
+        return False, None, None, "Login yoki parol noto'g'ri."
+    except Exception:
+        return False, None, None, "Login yoki parol noto'g'ri."
 
 def load_printers(business_id=None):
     """Business ID bo'yicha printerlarni yuklaydi. Eski formatdan migration ham qiladi."""
@@ -606,29 +602,43 @@ def do_print(p_cfg, content):
 # ── AGENT CORE ───────────────────────────────────────────────
 class Agent:
     def __init__(self):
-        self.running = False
-        self.server_url = SERVER_URL
-        self.business_id = ''
+        self.running       = False
+        self.seller_id     = ''
+        self.api_secret    = ''
         self.business_name = ''
-        self.username = ''
-        self.password = ''
         self.poll_interval = 5
-        self.printers = []
-        self.printed = 0
-        self.errors  = 0
-        self._cbs = []
-        self._thread = None
+        self.printers      = []
+        self.printed       = 0
+        self.errors        = 0
+        self._seen_orders  = set()   # bosib chiqarilgan order ID lar
+        self._cbs          = []
+        self._thread       = None
         self.reload()
+
+    # ── backward compat shims ─────────────────────────────────
+    @property
+    def server_url(self): return NONBOR_BASE
+    @property
+    def username(self):   return str(self.seller_id)
+    @property
+    def password(self):   return self.api_secret
+    @property
+    def business_id(self): return str(self.seller_id)
 
     def reload(self):
         c = load_config()
-        self.server_url    = _cfg_get(c,'settings','server_url', SERVER_URL)
-        self.business_id   = _cfg_get(c,'business','id','')
+        self.seller_id     = _cfg_get(c,'business','id','')
         self.business_name = _cfg_get(c,'business','name','')
-        self.username      = _cfg_get(c,'auth','username','')
-        self.password      = _cfg_get(c,'auth','password','')
+        self.api_secret    = _cfg_get(c,'auth','api_secret','')
         self.poll_interval = int(_cfg_get(c,'settings','poll_interval','5'))
-        self.printers      = load_printers(self.business_id)
+        self.printers      = load_printers(self.seller_id)
+        # Ko'rilgan orderlarni yukla
+        _seen_file = BASE_DIR / f'seen_orders_{self.seller_id}.json'
+        if _seen_file.exists():
+            try:
+                with open(_seen_file, encoding='utf-8') as f:
+                    self._seen_orders = set(json.load(f))
+            except: pass
 
     def log(self, msg, lvl='info'):
         ts = datetime.now().strftime('%H:%M:%S')
@@ -642,77 +652,110 @@ class Agent:
         name = (job.get('printer_name') or '').strip().lower()
         return next((p for p in self.printers if p.get('name','').lower()==name), None)
 
-    def _poll_orders(self):
-        """Nonbor API dan barcha bizneslarning buyurtmalarini tekshirish (server orqali).
-        /poll-all/ endpointi barcha aktiv+printerli bizneslarni bir vaqtda poll qiladi."""
+    @staticmethod
+    def _format_receipt(order, paper_width=80):
+        """Nonbor order dan ESC/POS matn chek yaratish"""
+        W = paper_width
+        line  = lambda c='-': c * W + '\n'
+        ctr   = lambda t: t.center(W) + '\n'
+        left  = lambda t: t[:W] + '\n'
+        price = lambda p: f"{int(p):,}".replace(',', ' ')
+
+        oid     = order.get('id', '')
+        state   = order.get('state', '')
+        dmethod = order.get('delivery_method', '')
+        pmethod = order.get('payment_method', '')
+        items   = order.get('items', [])
+        comment = order.get('comment', '') or ''
+        user    = order.get('user') or {}
+        uname   = user.get('first_name') or user.get('username') or ''
+        dt      = order.get('created_at', '')[:16].replace('T', ' ')
+
+        ESC = b'\x1b'
+        txt = (
+            ctr('NONBOR BUYURTMA') +
+            ctr(f'# {oid}') +
+            left(f'Vaqt: {dt}') +
+            (left(f'Mijoz: {uname}') if uname else '') +
+            line() +
+            ''.join(
+                left(f"{it.get('product_name','')[:W-14]:<{W-14}} {price(it.get('price',0)):>8} x{it.get('quantity',1)}")
+                for it in items
+            ) +
+            line() +
+            (left(f'Yetkazish: {dmethod}') if dmethod else '') +
+            (left(f"To'lash:   {pmethod}") if pmethod else '') +
+            (left(f'Izoh: {comment[:W-6]}') if comment else '') +
+            line('=') + '\n\n\n'
+        )
+        return (ESC + b'@' + txt.encode('utf-8', errors='replace') +
+                b'\x1d\x56\x41\x03')   # cut
+
+    def _save_seen(self):
+        _seen_file = BASE_DIR / f'seen_orders_{self.seller_id}.json'
         try:
-            r = _post(self.server_url, self.username, self.password,
-                      'nonbor/poll-all/', {})
-            total_new = r.get('total_new', 0)
-            total_printed = r.get('total_printed', 0)
-            results = r.get('results', [])
-            if total_new > 0:
-                for res in results:
-                    bname = res.get('business_name', '?')
-                    bnew = res.get('new_orders', 0)
-                    bprinted = res.get('printed', 0)
-                    if bnew > 0:
-                        self.log(f"📦 {bname}: {bnew} ta yangi buyurtma, {bprinted} ta chop etildi")
-        except Exception:
-            # Fallback: eski usul — faqat o'z biznesini poll qilish
-            try:
-                r = _post(self.server_url, self.username, self.password,
-                          f'nonbor/poll/{self.business_id}/', {})
-                new = r.get('new_orders', 0)
-                if new > 0:
-                    self.log(f"Nonbor: {new} ta yangi buyurtma")
-            except Exception:
-                pass
+            with open(_seen_file, 'w', encoding='utf-8') as f:
+                json.dump(list(self._seen_orders)[-2000:], f)
+        except: pass
 
     def _poll(self):
-        # 1) Nonbor API dan barcha bizneslarning buyurtmalarini tekshir
-        self._poll_orders()
-
-        # 2) Pending print joblarni ol (barcha bizneslar uchun)
+        """Nonbor prod API dan yangi buyurtmalarni olib printerga yuborish"""
+        if not self.seller_id or not self.api_secret:
+            return
         try:
-            r = _get(self.server_url, self.username, self.password,
-                     'print-job/agent/poll/', {'business_id': 'all'})
+            data = _nonbor_get(
+                f"telegram_bot/sellers/{self.seller_id}/orders/",
+                self.api_secret, timeout=15
+            )
         except Exception as e:
-            self.log(f"Server: {e}", 'error'); return
+            self.log(f"API xato: {e}", 'error'); return
 
-        jobs = r.get('result', []) if r.get('success') else []
-        if not jobs: return
-        self.log(f"{len(jobs)} ta yangi buyurtma!")
+        orders = data.get('result', []) if isinstance(data, dict) else []
+        new_orders = [o for o in orders if o.get('id') not in self._seen_orders]
 
-        for job in jobs:
-            jid  = job['id']
-            oid  = job['order_id']
-            pnm  = job.get('printer_name','?')
-            p    = self._find_printer(job)
+        if not new_orders:
+            return
 
-            if p and p.get('connection') != 'auto':
-                ok, err = do_print(p, job.get('content',''))
-            else:
-                cfg = {'connection': job.get('printer_connection','cloud'),
-                       'ip':         job.get('printer_ip',''),
-                       'port':       job.get('printer_port',9100),
-                       'usb':        job.get('printer_usb',''),
-                       'paper_width':job.get('paper_width',80)}
-                ok, err = do_print(cfg, job.get('content',''))
+        for order in new_orders:
+            oid = order.get('id')
+            self._seen_orders.add(oid)
 
+            # To'liq ma'lumot ol
             try:
-                _post(self.server_url, self.username, self.password,
-                      'print-job/agent/complete/',
-                      {'job_id':jid,'status':'completed' if ok else 'failed','error':err or ''})
-            except Exception as e:
-                self.log(f"Javob xato: {e}", 'error')
+                det = _nonbor_get(
+                    f"telegram_bot/sellers/{self.seller_id}/orders/{oid}/",
+                    self.api_secret
+                )
+                full_order = det.get('result', [{}])
+                if isinstance(full_order, list) and full_order:
+                    full_order = full_order[0]
+                    full_order['id'] = oid
+                else:
+                    full_order = order
+            except Exception:
+                full_order = order
+
+            # Admin printer (birinchi printer yoki 'admin' belgilangan)
+            admin_p = next((p for p in self.printers if p.get('is_admin')), None)
+            if not admin_p and self.printers:
+                admin_p = self.printers[0]
+
+            if not admin_p:
+                self.log(f"⚠ #{oid} — printer topilmadi", 'error')
+                continue
+
+            content = self._format_receipt(full_order)
+            ok, err = do_print(admin_p, content)
 
             if ok:
                 self.printed += 1
-                self.log(f"  ✓ #{oid} [{pnm}]")
+                self.log(f"✓ Buyurtma #{oid} chop etildi [{admin_p.get('name','?')}]")
             else:
                 self.errors += 1
-                self.log(f"  ✗ #{oid} [{pnm}] {err}", 'error')
+                self.log(f"✗ #{oid} xato: {err}", 'error')
+
+        self._save_seen()
+        self.log(f"📦 {len(new_orders)} ta yangi buyurtma!")
 
     def _loop(self):
         while self.running:
@@ -1443,6 +1486,226 @@ def S(key):
     return STRINGS.get(_current_lang, STRINGS['uz']).get(key, key)
 
 # ── TOOLTIP ──
+class RoundedButton(tk.Label):
+    """PIL asosida oval burchakli tugma."""
+    def __init__(self, parent, text, command=None, bg='#6366f1', fg='white',
+                 hover_bg='#4f46e5', font=('Segoe UI', 11, 'bold'),
+                 radius=18, width=220, height=44,
+                 padx=None, pady=None, **kwargs):
+        from PIL import Image, ImageDraw, ImageFont, ImageTk
+        self._PIL_Image = Image
+        self._PIL_Draw  = ImageDraw
+        self._PIL_Font  = ImageFont
+        self._PIL_Tk    = ImageTk
+
+        self._bg      = bg
+        self._hover   = hover_bg
+        self._fg      = fg
+        self._fnt     = font
+        self._text    = text
+        self._cmd     = command
+        self._radius  = radius
+        self._w       = width
+        self._h       = height
+        self._state   = 'normal'
+
+        self._img_n = self._make_img(bg)
+        self._img_h = self._make_img(hover_bg)
+        self._img_d = self._make_img('#9ca3af')
+
+        super().__init__(parent, image=self._img_n, cursor='hand2',
+                         bg=parent['bg'], bd=0, **kwargs)
+
+        self.bind('<Enter>',    lambda e: self._set('hover'))
+        self.bind('<Leave>',    lambda e: self._set('normal'))
+        self.bind('<Button-1>', lambda e: self._click())
+
+    def _make_img(self, fill):
+        img  = self._PIL_Image.new('RGBA', (self._w, self._h), (0, 0, 0, 0))
+        draw = self._PIL_Draw.Draw(img)
+        draw.rounded_rectangle([0, 0, self._w - 1, self._h - 1],
+                                radius=self._radius, fill=fill)
+        try:
+            font = self._PIL_Font.truetype('C:/Windows/Fonts/segoeui.ttf', self._fnt[1])
+        except Exception:
+            font = self._PIL_Font.load_default()
+        bbox = draw.textbbox((0, 0), self._text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text(((self._w - tw) // 2 - bbox[0],
+                   (self._h - th) // 2 - bbox[1]),
+                  self._text, fill=self._fg, font=font)
+        return self._PIL_Tk.PhotoImage(img)
+
+    def _set(self, state):
+        if self._state == 'disabled':
+            return
+        self.configure(image=self._img_h if state == 'hover' else self._img_n)
+
+    def _click(self):
+        if self._state == 'normal' and self._cmd:
+            self._cmd()
+
+    def config(self, **kwargs):
+        changed = False
+        if 'text' in kwargs:
+            self._text = kwargs.pop('text')
+            changed = True
+        if 'state' in kwargs:
+            self._state = kwargs.pop('state')
+            changed = True
+        if changed:
+            self._img_n = self._make_img(self._bg)
+            self._img_h = self._make_img(self._hover)
+            self._img_d = self._make_img('#9ca3af')
+            img = self._img_d if self._state == 'disabled' else self._img_n
+            self.configure(image=img)
+        kwargs.pop('bg', None)
+        if kwargs:
+            super().config(**kwargs)
+
+
+class _GradBtn:
+    """Gradient PIL rounded button — hover + ripple animation."""
+    _C1 = '#6366f1'
+    _C2 = '#8b5cf6'
+
+    def __init__(self, parent, text, cmd, w=380, h=48, radius=24,
+                 font=('Segoe UI', 12, 'bold'), bg=None):
+        self._text    = text
+        self._cmd     = cmd
+        self._w       = w
+        self._h       = h
+        self._r       = radius
+        self._font    = font
+        self._enabled = True
+        self._state   = 'normal'
+        self._refs    = {}
+
+        _bg = bg or parent.cget('bg')
+        self.canvas = tk.Canvas(parent, width=w, height=h,
+                                bd=0, highlightthickness=0,
+                                bg=_bg, cursor='hand2')
+        self._build_images()
+        self._draw('normal')
+
+        self.canvas.bind('<Enter>',           self._on_enter)
+        self.canvas.bind('<Leave>',           self._on_leave)
+        self.canvas.bind('<Button-1>',        self._on_press)
+        self.canvas.bind('<ButtonRelease-1>', self._on_release)
+
+    # ── helpers ────────────────────────────────────────────────
+    @staticmethod
+    def _h2rgb(h):
+        h = h.lstrip('#')
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+    @staticmethod
+    def _lighten(hex_c, amt=28):
+        r, g, b = _GradBtn._h2rgb(hex_c)
+        return f'#{min(255,r+amt):02x}{min(255,g+amt):02x}{min(255,b+amt):02x}'
+
+    def _make_img(self, c1, c2, disabled=False):
+        from PIL import Image, ImageDraw, ImageFont, ImageTk
+        SC = 2
+        W, H, R = self._w*SC, self._h*SC, self._r*SC
+        img  = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        if disabled:
+            r1 = r2 = (156, 163, 175)
+        else:
+            r1, r2 = self._h2rgb(c1), self._h2rgb(c2)
+
+        for x in range(W):
+            t   = x / max(W - 1, 1)
+            col = tuple(int(r1[i]*(1-t) + r2[i]*t) for i in range(3)) + (255,)
+            draw.line([(x, 0), (x, H)], fill=col)
+
+        mask = Image.new('L', (W, H), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, W-1, H-1], radius=R, fill=255)
+        img.putalpha(mask)
+
+        # Bake text into image
+        try:
+            font_path = 'C:/Windows/Fonts/segoeuib.ttf'
+            pil_font  = ImageFont.truetype(font_path, self._font[1] * SC)
+        except Exception:
+            pil_font = ImageFont.load_default()
+        d2   = ImageDraw.Draw(img)
+        bbox = d2.textbbox((0, 0), self._text, font=pil_font)
+        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+        d2.text(((W-tw)//2 - bbox[0], (H-th)//2 - bbox[1]),
+                self._text, fill=(255, 255, 255, 255), font=pil_font)
+
+        return ImageTk.PhotoImage(img.resize((self._w, self._h), Image.LANCZOS))
+
+    def _build_images(self):
+        c1, c2 = self._C1, self._C2
+        self._refs['normal']   = self._make_img(c1, c2)
+        self._refs['hover']    = self._make_img(self._lighten(c1), self._lighten(c2))
+        self._refs['disabled'] = self._make_img(c1, c2, disabled=True)
+
+    def _draw(self, state):
+        self._state = state
+        img = self._refs.get(state, self._refs['normal'])
+        self.canvas.delete('bg')
+        self.canvas.create_image(0, 0, anchor='nw', image=img, tags='bg')
+
+    # ── events ─────────────────────────────────────────────────
+    def _on_enter(self, e):
+        if self._enabled: self._draw('hover')
+
+    def _on_leave(self, e):
+        if self._enabled: self._draw('normal')
+
+    def _on_press(self, e):
+        if not self._enabled: return
+        self._start_ripple(e.x, e.y)
+
+    def _on_release(self, e):
+        if not self._enabled: return
+        if self._cmd: self._cmd()
+
+    def _start_ripple(self, x, y):
+        max_r = max(self._w, self._h) + 30
+        try:
+            oid = self.canvas.create_oval(x-3, y-3, x+3, y+3,
+                                          outline='white', fill='', width=3,
+                                          tags='ripple')
+        except Exception:
+            return
+
+        def _step(r):
+            if r > max_r:
+                try: self.canvas.delete('ripple')
+                except: pass
+                return
+            try:
+                self.canvas.coords(oid, x-r, y-r, x+r, y+r)
+                w = max(1, round(3 * (1 - r / max_r)))
+                self.canvas.itemconfig(oid, width=w)
+            except:
+                return
+            self.canvas.after(14, lambda: _step(r + 16))
+
+        self.canvas.after(14, lambda: _step(16))
+
+    # ── public API ─────────────────────────────────────────────
+    def set_text(self, text):
+        self._text = text
+        self._build_images()
+        self._draw(self._state)
+
+    def set_enabled(self, enabled):
+        self._enabled = enabled
+        self.canvas.config(cursor='hand2' if enabled else 'arrow')
+        self._draw('normal' if enabled else 'disabled')
+
+    def pack(self, **kw):  self.canvas.pack(**kw)
+    def grid(self, **kw):  self.canvas.grid(**kw)
+    def place(self, **kw): self.canvas.place(**kw)
+
+
 class ToolTip:
     def __init__(self, widget, text_func):
         self.widget = widget
@@ -1498,26 +1761,41 @@ class SettingsWindow:
         self.win.configure(bg=T('BG'))
         self.win.protocol('WM_DELETE_WINDOW', self._hide)
 
+        # ttk flat button style
+        _st = ttk.Style(self.win)
+        _st.theme_use('default')
+        for name, bg in [('Primary.TButton','#6366f1'),('Gray.TButton','#94a3b8'),
+                          ('Green.TButton','#059669'),('Purple.TButton','#7c3aed'),
+                          ('Orange.TButton','#f59e0b'),('Red.TButton','#ef4444')]:
+            _st.configure(name, background=bg, foreground='white',
+                          font=('Segoe UI',9,'bold'), relief='flat',
+                          borderwidth=0, padding=(12,6), focusthickness=0)
+            _st.map(name,
+                    background=[('active', self._lighten(bg)), ('pressed', bg)],
+                    relief=[('pressed','flat'),('active','flat')])
+
+        # Login kirish tugmasi — katta
+        _st.configure('Login.TButton', background='#6366f1', foreground='white',
+                       font=('Segoe UI', 13, 'bold'), relief='flat',
+                       borderwidth=0, padding=(20, 10), focusthickness=0)
+        _st.map('Login.TButton',
+                background=[('active','#4f46e5'),('disabled','#9ca3af')],
+                foreground=[('disabled','white')],
+                relief=[('pressed','flat'),('active','flat')])
+
         agent._cbs.append(self._on_log)
         self._build()
 
     def _btn(self, p, t, bg, cmd, **kw):
-        fg = kw.get('fg', 'white')
-        btn = tk.Button(p, text=t, command=cmd, bg=bg, fg=fg,
-                         font=kw.get('font',('Segoe UI',9)), relief='raised',
-                         bd=2, padx=kw.get('padx',12), pady=5, cursor='hand2',
-                         activebackground=bg, activeforeground=fg,
-                         highlightthickness=0)
-        orig_bg = bg
-        def _on_enter(e):
-            btn.config(relief='groove', bg=self._lighten(orig_bg))
-        def _on_leave(e):
-            btn.config(relief='raised', bg=orig_bg)
-        btn.bind('<Enter>', _on_enter)
-        btn.bind('<Leave>', _on_leave)
-        # Tooltip — har doim ko'rsatish (matn bo'yicha yoki berilgan)
-        tip_text = kw.get('tooltip', t.strip())
-        ToolTip(btn, tip_text)
+        fg  = kw.get('fg', 'white')
+        fnt = kw.get('font', ('Segoe UI', 9, 'bold'))
+        btn = tk.Label(p, text=t, bg=bg, fg=fg, font=fnt,
+                       cursor='hand2', padx=kw.get('padx', 14), pady=6)
+        orig = bg
+        btn.bind('<Button-1>', lambda e: cmd())
+        btn.bind('<Enter>',    lambda e: btn.config(bg=self._lighten(orig)))
+        btn.bind('<Leave>',    lambda e: btn.config(bg=orig))
+        ToolTip(btn, kw.get('tooltip', t.strip()))
         return btn
 
     @staticmethod
@@ -1532,13 +1810,44 @@ class SettingsWindow:
             return hex_color
 
     def _build(self):
+        # ── Title bar icon
+        try:
+            from PIL import Image, ImageTk
+            _ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico')
+            if not os.path.exists(_ico_path):
+                _ico_path = os.path.join(BASE_DIR, 'icon.ico')
+            _ico_img = ImageTk.PhotoImage(Image.open(_ico_path).resize((32, 32), Image.LANCZOS))
+            self.win.iconphoto(True, _ico_img)
+            self._ico_ref = _ico_img  # GC dan saqlash
+        except Exception:
+            pass
+
         # ── Header (gradient-style)
-        h = tk.Frame(self.win, bg=T('HEADER_BG'), pady=14)
+        h = tk.Frame(self.win, bg=T('HEADER_BG'), pady=10)
         h.pack(fill='x')
-        tk.Label(h, text=f"\U0001f5a8  {S('app_title')}",
-                 font=('Segoe UI',15,'bold'), fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack()
-        tk.Label(h, text=S('app_subtitle'),
-                 font=('Segoe UI',9), fg=T('HEADER_SUB'), bg=T('HEADER_BG')).pack()
+
+        # Logo + title yonma-yon
+        try:
+            from PIL import Image, ImageTk
+            _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico')
+            if not os.path.exists(_logo_path):
+                _logo_path = os.path.join(BASE_DIR, 'icon.ico')
+            _logo = ImageTk.PhotoImage(Image.open(_logo_path).resize((36, 36), Image.LANCZOS))
+            self._logo_ref = _logo
+            hrow = tk.Frame(h, bg=T('HEADER_BG'))
+            hrow.pack()
+            tk.Label(hrow, image=_logo, bg=T('HEADER_BG')).pack(side='left', padx=(0, 8))
+            htxt = tk.Frame(hrow, bg=T('HEADER_BG'))
+            htxt.pack(side='left')
+            tk.Label(htxt, text=S('app_title'),
+                     font=('Segoe UI', 15, 'bold'), fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack(anchor='w')
+            tk.Label(htxt, text=S('app_subtitle'),
+                     font=('Segoe UI', 9), fg=T('HEADER_SUB'), bg=T('HEADER_BG')).pack(anchor='w')
+        except Exception:
+            tk.Label(h, text=S('app_title'),
+                     font=('Segoe UI', 15, 'bold'), fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack()
+            tk.Label(h, text=S('app_subtitle'),
+                     font=('Segoe UI', 9), fg=T('HEADER_SUB'), bg=T('HEADER_BG')).pack()
 
         # ── Footer (always shown)
         ft = tk.Frame(self.win, bg=T('BG3'), pady=7, padx=16)
@@ -1560,82 +1869,193 @@ class SettingsWindow:
 
     # ── LOGIN FRAME ───────────────────────────────────────────
     def _show_login(self):
-        self.win.geometry("480x460")
+        self.win.geometry("480x570")
         if self._main_frame:
             self._main_frame.pack_forget()
         if self._login_frame:
             self._login_frame.destroy()
 
-        f = tk.Frame(self._content, bg=T('BG'))
-        f.pack(fill='both', expand=True)
-        self._login_frame = f
         self._saved_logins = load_saved_logins()
 
-        # Spacer top
-        tk.Frame(f, bg=T('BG'), height=16).pack()
+        # ── Root: soft gradient-like bg ─────────────────────
+        root = tk.Frame(self._content, bg='#eef2ff')
+        root.pack(fill='both', expand=True)
+        self._login_frame = root
 
-        # Card frame
-        card = tk.Frame(f, bg=T('CARD'), padx=28, pady=20,
-                        highlightbackground=T('BORDER'), highlightthickness=1)
-        card.pack(padx=24, fill='x')
+        tk.Frame(root, bg='#eef2ff', height=10).pack()
 
-        # Title
-        title_f = tk.Frame(card, bg=T('CARD')); title_f.pack(fill='x', pady=(0,12))
-        tk.Label(title_f, text=S('login_title'),
-                 font=('Segoe UI',14,'bold'), fg=T('FG'), bg=T('CARD')).pack(anchor='w')
-        tk.Label(title_f, text=S('login_subtitle'),
-                 font=('Segoe UI',9), fg=T('FGD'), bg=T('CARD')).pack(anchor='w')
+        # ── Card shadow layers ───────────────────────────────
+        _sh = tk.Frame(root, bg='#c7d2fe')
+        _sh.pack(padx=16, pady=(0, 6))
+        _sh2 = tk.Frame(_sh, bg='#dde4fb', padx=1, pady=1)
+        _sh2.pack(padx=2, pady=2)
+        _cb = tk.Frame(_sh2, bg='#e0e7ff', padx=1, pady=1)
+        _cb.pack()
+        card = tk.Frame(_cb, bg='white', padx=26, pady=0)
+        card.pack()
 
-        # Server URL
-        tk.Label(card, text='Server URL', font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'),
-                 anchor='w').pack(fill='x')
-        self._l_url = tk.Entry(card, font=('Segoe UI',10), bg=T('BG2'), fg=T('FG'),
-                                insertbackground=T('FG'), relief='solid', bd=1)
-        self._l_url.insert(0, self.agent.server_url)
-        self._l_url.pack(fill='x', pady=(3,12), ipady=3)
+        # ── Gradient accent strip at top ─────────────────────
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+            _SW = 428
+            _si = Image.new('RGBA', (_SW * 2, 12), (0, 0, 0, 0))
+            _sd = ImageDraw.Draw(_si)
+            _sc1, _sc2 = (79, 70, 229), (124, 58, 237)
+            for _x in range(_SW * 2):
+                _t  = _x / max(_SW * 2 - 1, 1)
+                _sd.line([(_x, 0), (_x, 11)],
+                         fill=tuple(int(_sc1[i]*(1-_t)+_sc2[i]*_t) for i in range(3))+(255,))
+            _si_ref = ImageTk.PhotoImage(_si.resize((_SW, 6), Image.LANCZOS))
+            _sl = tk.Label(card, image=_si_ref, bg='white', bd=0)
+            _sl.image = _si_ref
+            _sl.pack(fill='x', pady=(0, 10))
+        except Exception:
+            tk.Frame(card, bg='#6366f1', height=6).pack(fill='x', pady=(0, 10))
 
-        # Login label + input
-        tk.Label(card, text=S('login'), font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'),
-                 anchor='w').pack(fill='x')
-        usernames = [l['username'] for l in self._saved_logins]
-        self._l_user = ttk.Combobox(card, values=usernames,
-                                     font=('Segoe UI',11), width=28)
-        self._l_user.pack(fill='x', pady=(3,12), ipady=3)
+        # ── Circular logo badge ──────────────────────────────
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+            _ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico')
+            if not os.path.exists(_ico_path):
+                _ico_path = os.path.join(BASE_DIR, 'icon.ico')
+            _icon_src = Image.open(_ico_path).resize((44, 44), Image.LANCZOS).convert('RGBA')
+            _badge = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+            _bd = ImageDraw.Draw(_badge)
+            _bc1, _bc2 = (79, 70, 229), (124, 58, 237)
+            for _x in range(64):
+                _t = _x / 63
+                _bd.line([(_x, 0), (_x, 63)],
+                         fill=tuple(int(_bc1[i]*(1-_t)+_bc2[i]*_t) for i in range(3))+(255,))
+            _bmask = Image.new('L', (64, 64), 0)
+            ImageDraw.Draw(_bmask).ellipse([0, 0, 63, 63], fill=255)
+            _badge.putalpha(_bmask)
+            _badge.paste(_icon_src, (10, 10), _icon_src)
+            _badge_ref = ImageTk.PhotoImage(_badge)
+            _bl = tk.Label(card, image=_badge_ref, bg='white', bd=0)
+            _bl.image = _badge_ref
+            _bl.pack(pady=(0, 6))
+        except Exception:
+            tk.Label(card, text='\U0001f5a8', font=('Segoe UI', 28), bg='white').pack(pady=(0, 6))
+
+        # ── Title + subtitle ─────────────────────────────────
+        tk.Label(card, text='NONBOR PRINT AGENT',
+                 font=('Segoe UI', 14, 'bold'), fg='#1e293b', bg='white').pack()
+        tk.Label(card, text='nonbor.uz \u2022 Chop etish agenti',
+                 font=('Segoe UI', 9), fg='#94a3b8', bg='white').pack(pady=(2, 10))
+
+        # ── Thin divider ─────────────────────────────────────
+        tk.Frame(card, bg='#e2e8f0', height=1).pack(fill='x', pady=(0, 10))
+
+        # ── Rounded input helper ─────────────────────────────
+        INP_W, INP_H = 380, 42
+
+        def _make_border(bc):
+            from PIL import Image, ImageDraw, ImageTk
+            im = Image.new('RGBA', (INP_W * 2, INP_H * 2), (0, 0, 0, 0))
+            id_ = ImageDraw.Draw(im)
+            rgb = tuple(int(bc.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+            id_.rounded_rectangle([0, 0, INP_W*2-1, INP_H*2-1],
+                                   radius=22, fill=(255, 255, 255, 255),
+                                   outline=rgb + (255,), width=4)
+            return ImageTk.PhotoImage(im.resize((INP_W, INP_H), Image.LANCZOS))
+
+        def _field(label_text, default='', values=None, show=''):
+            fw = tk.Frame(card, bg='white')
+            fw.pack(fill='x', pady=(0, 7))
+            tk.Label(fw, text=label_text, font=('Segoe UI', 8, 'bold'),
+                     fg='#6366f1', bg='white', anchor='w').pack(fill='x', pady=(0, 3))
+            try:
+                cnv = tk.Canvas(fw, width=INP_W, height=INP_H,
+                                bd=0, highlightthickness=0, bg='white')
+                cnv.pack()
+                _n  = _make_border('#e2e8f0')
+                _f  = _make_border('#6366f1')
+                cnv.create_image(0, 0, anchor='nw', image=_n, tags='bd')
+                fw._n, fw._f = _n, _f
+
+                if values is not None:
+                    ent = ttk.Combobox(cnv, values=values, font=('Segoe UI', 10))
+                elif show:
+                    ent = ttk.Entry(cnv, font=('Segoe UI', 10), show=show)
+                else:
+                    ent = ttk.Entry(cnv, font=('Segoe UI', 10))
+                ent.insert(0, default)
+                cnv.create_window(INP_W // 2, INP_H // 2, anchor='center',
+                                  window=ent, width=INP_W - 22, height=INP_H - 14)
+
+                def _fi(e): cnv.itemconfig('bd', image=fw._f)
+                def _fb(e): cnv.itemconfig('bd', image=fw._n)
+                ent.bind('<FocusIn>',  _fi)
+                ent.bind('<FocusOut>', _fb)
+            except Exception:
+                if values is not None:
+                    ent = ttk.Combobox(fw, values=values, font=('Segoe UI', 10))
+                elif show:
+                    ent = ttk.Entry(fw, font=('Segoe UI', 10), show=show)
+                else:
+                    ent = ttk.Entry(fw, font=('Segoe UI', 10))
+                ent.insert(0, default)
+                ent.pack(fill='x', ipady=5)
+            return ent
+
+        # Seller ID
+        saved_ids = [l['username'] for l in self._saved_logins]
+        self._l_user = _field('Seller ID', values=saved_ids)
         self._l_user.bind('<<ComboboxSelected>>', self._on_login_select)
 
-        # Parol label + input
-        tk.Label(card, text=S('password'), font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'),
-                 anchor='w').pack(fill='x')
-        pf = tk.Frame(card, bg=T('CARD')); pf.pack(fill='x', pady=(3,8))
+        # ── API Secret row (with eye toggle) ─────────────────
+        pfw = tk.Frame(card, bg='white')
+        pfw.pack(fill='x', pady=(0, 4))
+        tk.Label(pfw, text='API Secret (X-Telegram-Bot-Secret)', font=('Segoe UI', 8, 'bold'),
+                 fg='#6366f1', bg='white', anchor='w').pack(fill='x', pady=(0, 3))
         self._pass_visible = False
-        self._l_pass = tk.Entry(pf, font=('Segoe UI',11), bg=T('BG2'), fg=T('FG'),
-                                 insertbackground=T('FG'), relief='solid', bd=1,
-                                 show='\u25cf')
-        self._l_pass.pack(side='left', fill='x', expand=True, ipady=4)
-        self._l_eye = tk.Button(pf, text='\U0001f441', command=self._toggle_pass,
-                                 bg=T('BG3'), fg=T('FGD'), relief='flat',
-                                 font=('Segoe UI',10), cursor='hand2', padx=8, bd=0)
-        self._l_eye.pack(side='left', padx=(4,0))
-        self._l_pass.bind('<Return>', lambda e: self._do_login())
+        try:
+            pcnv = tk.Canvas(pfw, width=INP_W, height=INP_H,
+                             bd=0, highlightthickness=0, bg='white')
+            pcnv.pack()
+            _pn = _make_border('#e2e8f0')
+            _pf = _make_border('#6366f1')
+            pcnv.create_image(0, 0, anchor='nw', image=_pn, tags='bd')
+            pfw._n, pfw._f = _pn, _pf
 
-        # Error label
-        self._l_err = tk.Label(card, text='', font=('Segoe UI',9), fg=T('RED'), bg=T('CARD'))
-        self._l_err.pack(fill='x')
+            _inner = tk.Frame(pcnv, bg='white')
+            pcnv.create_window(INP_W // 2, INP_H // 2, anchor='center',
+                               window=_inner, width=INP_W - 22, height=INP_H - 14)
 
-        # ── KIRISH BUTTON (katta, yorqin)
-        self._l_btn = tk.Button(card, text=f"\u279c  {S('enter')}",
-                                 command=self._do_login,
-                                 bg=T('ACCENT'), fg='white',
-                                 font=('Segoe UI',12,'bold'),
-                                 relief='raised', bd=3, pady=10, cursor='hand2',
-                                 activebackground=T('BTN_HOVER'), activeforeground='white')
-        ToolTip(self._l_btn, lambda: S('enter'))
-        self._l_btn.pack(fill='x', pady=(6,0), ipady=2)
+            self._l_pass = ttk.Entry(_inner, font=('Segoe UI', 10), show='\u2022')
+            self._l_pass.pack(side='left', fill='both', expand=True)
+            self._l_pass.bind('<Return>', lambda e: self._do_login())
 
-        # Saved logins hint
-        if self._saved_logins:
-            tk.Label(f, text=f"\U0001f4be  {len(self._saved_logins)} {S('saved_logins')}",
-                     font=('Segoe UI',8), fg=T('FGD'), bg=T('BG')).pack(pady=(10,0))
+            self._l_eye = tk.Label(_inner, text='\U0001f441', bg='white', fg='#94a3b8',
+                                   font=('Segoe UI', 11), cursor='hand2')
+            self._l_eye.pack(side='right', padx=(4, 0))
+            self._l_eye.bind('<Button-1>', lambda e: self._toggle_pass())
+
+            def _pfi(e): pcnv.itemconfig('bd', image=pfw._f)
+            def _pfb(e): pcnv.itemconfig('bd', image=pfw._n)
+            self._l_pass.bind('<FocusIn>',  _pfi)
+            self._l_pass.bind('<FocusOut>', _pfb)
+        except Exception:
+            _pr2 = tk.Frame(pfw, bg='white')
+            _pr2.pack(fill='x')
+            self._l_pass = ttk.Entry(_pr2, font=('Segoe UI', 10), show='\u2022')
+            self._l_pass.pack(side='left', fill='x', expand=True, ipady=5)
+            self._l_pass.bind('<Return>', lambda e: self._do_login())
+            self._l_eye = tk.Label(_pr2, text='\U0001f441', bg='white', fg='#94a3b8',
+                                   font=('Segoe UI', 11), cursor='hand2')
+            self._l_eye.pack(side='right', padx=(4, 0))
+            self._l_eye.bind('<Button-1>', lambda e: self._toggle_pass())
+
+        # ── Error label ──────────────────────────────────────
+        self._l_err = tk.Label(card, text='', font=('Segoe UI', 9),
+                               fg='#ef4444', bg='white',
+                               wraplength=370, justify='left')
+        self._l_err.pack(fill='x', pady=(4, 2))
+
+        # ── Gradient Kirish button ───────────────────────────
+        self._l_btn = _GradBtn(card, f'\u2192  {S("enter")}',
+                               self._do_login, w=380, h=46, bg='white')
+        self._l_btn.pack(pady=(4, 20))
 
         self._l_user.focus()
 
@@ -1646,36 +2066,43 @@ class SettingsWindow:
 
     def _toggle_pass(self):
         self._pass_visible = not self._pass_visible
-        self._l_pass.config(show='' if self._pass_visible else '\u25cf')
-        self._l_eye.config(fg=T('ACCENT') if self._pass_visible else T('FGD'), bg=T('CARD'))
+        self._l_pass.config(show='' if self._pass_visible else '\u2022')
+        self._l_eye.config(fg='#6366f1' if self._pass_visible else '#94a3b8')
 
     def _do_login(self):
-        u = self._l_user.get().strip()
-        p = self._l_pass.get().strip()
-        url = self._l_url.get().strip() or SERVER_URL
+        import threading
+        u   = self._l_user.get().strip()
+        p   = self._l_pass.get().strip()
         if not u or not p:
-            self._l_err.config(text=S('login_error'))
+            self._l_err.config(text=f'\u26a0  {S("login_error")}', fg='#ef4444')
             return
-        self._l_btn.config(text=f"\u23f3  {S('checking')}", state='disabled', bg='#6366f1')
+        self._l_btn.set_text(f'\u23f3  {S("checking")}')
+        self._l_btn.set_enabled(False)
         self._l_err.config(text='')
-        self.win.update()
+        self.win.update_idletasks()
 
-        ok, bid, bname, err = api_agent_auth(url, u, p)
-        self._l_btn.config(text=f"\u279c  {S('enter')}", state='normal', bg=T('ACCENT'))
-        if not ok:
-            self._l_err.config(text=f"✗ {err}")
-            return
+        def _run():
+            ok, bid, bname, err = api_agent_auth(u, p)
+            def _done():
+                self._l_btn.set_text(f'\u2192  {S("enter")}')
+                self._l_btn.set_enabled(True)
+                if not ok:
+                    self._l_err.config(
+                        text=f'\u2717  {err}',
+                        fg='#ef4444', font=('Segoe UI', 9, 'bold'),
+                    )
+                    return
+                self.agent.seller_id     = bid
+                self.agent.api_secret    = p
+                self.agent.business_name = bname
+                save_config(self.agent)
+                save_login_to_history(u)
+                self._printers = load_printers(bid)
+                self.agent.printers = self._printers
+                self._show_main()
+            self.win.after(0, _done)
 
-        self.agent.server_url    = url
-        self.agent.username      = u
-        self.agent.password      = p
-        self.agent.business_id   = bid
-        self.agent.business_name = bname
-        save_config(self.agent)
-        save_login_to_history(u)
-        self._printers = load_printers(bid)
-        self.agent.printers = self._printers
-        self._show_main()
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── MAIN FRAME ────────────────────────────────────────────
     def _show_main(self):

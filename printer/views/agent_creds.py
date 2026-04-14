@@ -341,7 +341,6 @@ class AgentCredentialCreateView(APIView):
                 'business_id': cred.business_id,
                 'business_name': cred.business_name,
                 'username': cred.username,
-                'password': cred.password,
                 'is_active': cred.is_active,
                 'note': cred.note,
                 'created_at': cred.created_at.isoformat(),

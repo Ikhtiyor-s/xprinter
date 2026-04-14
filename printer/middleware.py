@@ -2,7 +2,10 @@
 import os
 from django.http import JsonResponse
 
-API_SECRET_KEY = os.environ.get('API_SECRET_KEY', 'xprinter-api-secret-2024-nonbor')
+API_SECRET_KEY = os.environ.get('API_SECRET_KEY', '')
+if not API_SECRET_KEY:
+    import warnings
+    warnings.warn("API_SECRET_KEY muhit o'zgaruvchisi o'rnatilmagan! Barcha so'rovlar Basic Auth bilan ishlaydi.", RuntimeWarning)
 
 # Auth talab qilmaydigan yo'llar
 PUBLIC_PATHS = {'/', '/health', '/admin/login/'}
@@ -26,9 +29,9 @@ class ApiKeyMiddleware:
         if request.method == 'OPTIONS':
             return self.get_response(request)
 
-        # X-API-Key header tekshirish
+        # X-API-Key header tekshirish (faqat kalit mavjud bo'lganda)
         api_key = request.headers.get('X-API-Key', '')
-        if api_key == API_SECRET_KEY:
+        if API_SECRET_KEY and api_key == API_SECRET_KEY:
             return self.get_response(request)
 
         # Basic Auth (mavjud agent auth) — backward compatible

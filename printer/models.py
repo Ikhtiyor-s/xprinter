@@ -10,11 +10,13 @@ class Printer(models.Model):
     CONNECTION_USB = 'usb'
     CONNECTION_CLOUD = 'cloud'
     CONNECTION_WIFI = 'wifi'
+    CONNECTION_P8 = 'p8'
     CONNECTION_CHOICES = [
         (CONNECTION_NETWORK, 'Tarmoq (IP) - lokal'),
         (CONNECTION_USB, 'USB - lokal'),
         (CONNECTION_CLOUD, 'Cloud - masofadan (agent orqali)'),
         (CONNECTION_WIFI, 'WiFi - simsiz tarmoq'),
+        (CONNECTION_P8, 'Trendit P8 - Smart Cloud Printer'),
     ]
 
     PAPER_58 = 58
@@ -60,6 +62,24 @@ class Printer(models.Model):
         default=PAPER_80,
         help_text="Qog'oz kengligi: 58mm yoki 80mm"
     )
+    # P8 Cloud Printer sozlamalari
+    p8_device_sn = models.CharField(
+        max_length=100,
+        null=True, blank=True,
+        help_text="Trendit P8 qurilma seriya raqami (SN)"
+    )
+    p8_key = models.CharField(
+        max_length=200,
+        null=True, blank=True,
+        help_text="Trendit P8 API kaliti (access key)"
+    )
+    p8_api_url = models.CharField(
+        max_length=500,
+        null=True, blank=True,
+        default='https://api.trenditen.com',
+        help_text="Trendit P8 bulut API manzili"
+    )
+
     is_active = models.BooleanField(default=True)
     auto_print = models.BooleanField(
         default=True,

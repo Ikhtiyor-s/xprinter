@@ -2,6 +2,7 @@ import os
 import sys
 import socket
 import logging
+import requests as _requests
 from datetime import datetime
 from collections import defaultdict
 
@@ -432,12 +433,56 @@ def _send_to_linux_usb(usb_path, data: bytes):
         return False, f"USB xatolik: {usb_path} - {str(e)}"
 
 
+def send_to_p8_printer(printer: Printer, data: bytes, timeout=10):
+    """Trendit P8 Smart Cloud Printer orqali chop etish.
+
+    Trendit P8 API ga ESC/POS ma'lumotini base64 formatida yuboradi.
+    API javob: {"code": 0, "msg": "success"} yoki {"code": ..., "msg": "..."}
+    """
+    import base64
+
+    if not printer.p8_device_sn:
+        return False, "P8 qurilma SN ko'rsatilmagan"
+    if not printer.p8_key:
+        return False, "P8 API kaliti ko'rsatilmagan"
+
+    api_url = (printer.p8_api_url or 'https://api.trenditen.com').rstrip('/')
+    endpoint = f"{api_url}/open/print"
+
+    payload = {
+        'sn': printer.p8_device_sn,
+        'key': printer.p8_key,
+        'content': base64.b64encode(data).decode('utf-8'),
+        'times': 1,
+    }
+
+    try:
+        resp = _requests.post(endpoint, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        result = resp.json()
+        code = result.get('code', -1)
+        if code == 0:
+            return True, None
+        msg = result.get('msg', 'Noma\'lum xatolik')
+        return False, f"P8 API xatolik (code={code}): {msg}"
+    except _requests.Timeout:
+        return False, f"P8 API javob bermadi (timeout {timeout}s)"
+    except _requests.ConnectionError as e:
+        return False, f"P8 API ulanish xatoligi: {str(e)}"
+    except _requests.HTTPError as e:
+        return False, f"P8 API HTTP xatolik: {str(e)}"
+    except Exception as e:
+        return False, f"P8 xatolik: {str(e)}"
+
+
 def send_to_printer(printer: Printer, data: bytes):
     """Printerga yuborish (auto-detect connection type)"""
     if printer.connection_type == Printer.CONNECTION_CLOUD:
         # Cloud rejim - printerga yuborilmaydi, agent o'zi olib ketadi
         # PrintJob "pending" holatda qoladi, agent poll qilib oladi
         return 'cloud', None
+    elif printer.connection_type == Printer.CONNECTION_P8:
+        return send_to_p8_printer(printer, data)
     elif printer.connection_type in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI):
         if not printer.ip_address:
             return False, "IP manzil ko'rsatilmagan"

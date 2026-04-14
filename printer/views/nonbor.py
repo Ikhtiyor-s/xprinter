@@ -107,12 +107,17 @@ class NonborConfigListView(APIView):
     """GET /api/v2/nonbor-config/list/ - Nonbor sozlamalari"""
 
     def get(self, request):
-        biz_id, err = enforce_business_id(request)
-        if err:
-            return err
+        biz_id = enforce_business_id(request)
+        # Superuser bo'lmagan foydalanuvchi uchun biz_id majburiy
+        if not request.user.is_superuser and not biz_id:
+            return Response(
+                {'success': False, 'error': 'business_id talab qilinadi'},
+                status=403
+            )
         configs = NonborConfig.objects.all()
         if biz_id:
-            configs = configs.filter(business_id=biz_id).order_by('-created_at')
+            configs = configs.filter(business_id=biz_id)
+        configs = configs.order_by('-created_at')
         return Response({
             'success': True,
             'result': NonborConfigSerializer(configs, many=True).data,

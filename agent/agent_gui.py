@@ -220,9 +220,27 @@ def _send_usb_linux(path, data):
     except Exception as e:
         return False, str(e)
 
-def send_to_printer(conn, ip, port, usb, paper_width, content):
+def _send_p8(sn, key, api_url, data):
+    """Trendit P8 Smart Cloud Printer orqali chop etish."""
+    import base64
+    url = (api_url or 'https://api.trenditen.com').rstrip('/') + '/open/print'
+    payload = {'sn': sn, 'key': key, 'content': base64.b64encode(data).decode(), 'times': 1}
+    try:
+        resp = _req.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
+        r = resp.json()
+        if r.get('code', -1) == 0:
+            return True, None
+        return False, f"P8 xatolik (code={r.get('code')}): {r.get('msg', '')}"
+    except Exception as e:
+        return False, f"P8 ulanish xatoligi: {e}"
+
+
+def send_to_printer(conn, ip, port, usb, paper_width, content, p8_sn='', p8_key='', p8_api_url=''):
     """Printerga ESC/POS yuborish."""
     data = _escpos(content, int(paper_width))
+    if conn == 'p8':
+        return _send_p8(p8_sn, p8_key, p8_api_url, data)
     if conn in ('network', 'wifi') and ip:
         return _send_network(ip, port, data)
     if usb:
@@ -276,20 +294,27 @@ class Agent:
 
         if p and p.get('connection') != 'auto':
             # Lokal sozlama topildi
-            conn  = p.get('connection', 'network')
-            ip    = p.get('ip', '')
-            port  = p.get('port', 9100)
-            usb   = p.get('usb', '')
-            width = p.get('paper_width', 80)
+            conn        = p.get('connection', 'network')
+            ip          = p.get('ip', '')
+            port        = p.get('port', 9100)
+            usb         = p.get('usb', '')
+            width       = p.get('paper_width', 80)
+            p8_sn       = p.get('p8_sn', '')
+            p8_key      = p.get('p8_key', '')
+            p8_api_url  = p.get('p8_api_url', '')
         else:
             # Serverdan kelgan sozlamalar
-            conn  = job.get('printer_connection', 'cloud')
-            ip    = job.get('printer_ip', '')
-            port  = job.get('printer_port', 9100)
-            usb   = job.get('printer_usb', '')
-            width = job.get('paper_width', 80)
+            conn        = job.get('printer_connection', 'cloud')
+            ip          = job.get('printer_ip', '')
+            port        = job.get('printer_port', 9100)
+            usb         = job.get('printer_usb', '')
+            width       = job.get('paper_width', 80)
+            p8_sn       = job.get('p8_sn', '')
+            p8_key      = job.get('p8_key', '')
+            p8_api_url  = job.get('p8_api_url', '')
 
-        return send_to_printer(conn, ip, port, usb, width, job.get('content', ''))
+        return send_to_printer(conn, ip, port, usb, width, job.get('content', ''),
+                                p8_sn=p8_sn, p8_key=p8_key, p8_api_url=p8_api_url)
 
     def _poll(self):
         try:
@@ -442,7 +467,8 @@ class PrinterDialog(tk.Toplevel):
         tk.Label(row2, text="Ulanish turi *", width=18, anchor='w',
                  font=FONT, fg=FGD, bg=BG).pack(side='left')
         self._conn = tk.StringVar(value=d.get('connection', 'network'))
-        for val, txt in [('network', 'Tarmoq (IP)'), ('wifi', 'WiFi'), ('usb', 'USB / Windows'), ('auto', 'Auto (serverdan)')]:
+        for val, txt in [('network', 'Tarmoq (IP)'), ('wifi', 'WiFi'), ('usb', 'USB / Windows'),
+                         ('p8', 'Trendit P8'), ('auto', 'Auto (serverdan)')]:
             tk.Radiobutton(row2, text=txt, variable=self._conn, value=val,
                            bg=BG, fg=FG, selectcolor=BG3, activebackground=BG,
                            font=('Segoe UI', 9),
@@ -484,6 +510,40 @@ class PrinterDialog(tk.Toplevel):
         self._usb_cb['values'] = self._local
         self._usb_cb.pack(side='left', fill='x', expand=True)
 
+        # P8 fields
+        self._p8_frame = tk.Frame(self, bg=BG)
+        self._p8_frame.pack(fill='x', padx=20)
+
+        tk.Label(self._p8_frame, text="ℹ Trendit P8 Smart Cloud Printer sozlamalari",
+                 font=('Segoe UI', 8, 'italic'), fg='#7eb3e0', bg=BG).pack(anchor='w', pady=(4, 2))
+
+        sn_row = tk.Frame(self._p8_frame, bg=BG)
+        sn_row.pack(fill='x', pady=3)
+        tk.Label(sn_row, text="Qurilma SN *", width=18, anchor='w',
+                 font=FONT, fg=FGD, bg=BG).pack(side='left')
+        self._p8_sn = tk.Entry(sn_row, font=FONT, bg=BG2, fg=FG,
+                                insertbackground=FG, relief='flat', bd=5)
+        self._p8_sn.insert(0, d.get('p8_sn', ''))
+        self._p8_sn.pack(side='left', fill='x', expand=True)
+
+        key_row = tk.Frame(self._p8_frame, bg=BG)
+        key_row.pack(fill='x', pady=3)
+        tk.Label(key_row, text="API kaliti *", width=18, anchor='w',
+                 font=FONT, fg=FGD, bg=BG).pack(side='left')
+        self._p8_key = tk.Entry(key_row, font=FONT, bg=BG2, fg=FG,
+                                 insertbackground=FG, relief='flat', bd=5, show='*')
+        self._p8_key.insert(0, d.get('p8_key', ''))
+        self._p8_key.pack(side='left', fill='x', expand=True)
+
+        apiurl_row = tk.Frame(self._p8_frame, bg=BG)
+        apiurl_row.pack(fill='x', pady=3)
+        tk.Label(apiurl_row, text="API URL", width=18, anchor='w',
+                 font=FONT, fg=FGD, bg=BG).pack(side='left')
+        self._p8_api_url = tk.Entry(apiurl_row, font=FONT, bg=BG2, fg=FG,
+                                     insertbackground=FG, relief='flat', bd=5)
+        self._p8_api_url.insert(0, d.get('p8_api_url', 'https://api.trenditen.com'))
+        self._p8_api_url.pack(side='left', fill='x', expand=True)
+
         # Paper width
         pw_row = tk.Frame(self, bg=BG)
         pw_row.pack(fill='x', **pad)
@@ -508,13 +568,25 @@ class PrinterDialog(tk.Toplevel):
     def _on_conn_change(self):
         conn = self._conn.get()
         net_active = conn in ('network', 'wifi')
+
         for w in self._net_frame.winfo_children():
             for c in w.winfo_children():
-                c.configure(state='normal' if net_active else 'disabled')
+                try:
+                    c.configure(state='normal' if net_active else 'disabled')
+                except Exception:
+                    pass
+
         for w in self._usb_frame.winfo_children():
             for c in w.winfo_children():
                 try:
                     c.configure(state='normal' if conn == 'usb' else 'disabled')
+                except Exception:
+                    pass
+
+        for w in self._p8_frame.winfo_children():
+            for c in (w.winfo_children() if hasattr(w, 'winfo_children') else [w]):
+                try:
+                    c.configure(state='normal' if conn == 'p8' else 'disabled')
                 except Exception:
                     pass
 
@@ -530,6 +602,13 @@ class PrinterDialog(tk.Toplevel):
         if conn == 'usb' and not self._usb_var.get().strip():
             messagebox.showwarning("Xato", "Printer nomini tanlang!", parent=self)
             return
+        if conn == 'p8':
+            if not self._p8_sn.get().strip():
+                messagebox.showwarning("Xato", "P8 qurilma SN raqamini kiriting!", parent=self)
+                return
+            if not self._p8_key.get().strip():
+                messagebox.showwarning("Xato", "P8 API kalitini kiriting!", parent=self)
+                return
 
         self.result = {
             'id':          str(uuid.uuid4()),
@@ -538,6 +617,9 @@ class PrinterDialog(tk.Toplevel):
             'ip':          self._ip.get().strip(),
             'port':        int(self._port.get().strip() or 9100),
             'usb':         self._usb_var.get().strip(),
+            'p8_sn':       self._p8_sn.get().strip(),
+            'p8_key':      self._p8_key.get().strip(),
+            'p8_api_url':  self._p8_api_url.get().strip(),
             'paper_width': int(self._pw.get()),
         }
         self.destroy()
@@ -773,6 +855,9 @@ class MainWindow:
             elif conn == 'usb':
                 addr  = p.get('usb', '')
                 ctype = '🖨 USB'
+            elif conn == 'p8':
+                addr  = f"SN:{p.get('p8_sn', '')}"
+                ctype = '📡 Trendit P8'
             else:
                 addr  = '(serverdan)'
                 ctype = '☁ Auto'

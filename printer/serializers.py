@@ -10,11 +10,13 @@ from .models import (
 # ============================================================
 
 def _validate_printer_connection(data, instance=None):
-    """Printer connection_type ga qarab ip_address/usb_path tekshirish.
+    """Printer connection_type ga qarab ip_address/usb_path/p8 tekshirish.
     Create va Update serializerlar uchun umumiy validatsiya."""
     conn = data.get('connection_type', getattr(instance, 'connection_type', Printer.CONNECTION_NETWORK))
     ip = data.get('ip_address', getattr(instance, 'ip_address', None))
     usb = data.get('usb_path', getattr(instance, 'usb_path', None))
+    p8_sn = data.get('p8_device_sn', getattr(instance, 'p8_device_sn', None))
+    p8_key = data.get('p8_key', getattr(instance, 'p8_key', None))
 
     if conn in (Printer.CONNECTION_NETWORK, Printer.CONNECTION_WIFI) and not ip:
         raise serializers.ValidationError({
@@ -24,6 +26,15 @@ def _validate_printer_connection(data, instance=None):
         raise serializers.ValidationError({
             'usb_path': "USB printer uchun path kiritish shart."
         })
+    elif conn == Printer.CONNECTION_P8:
+        if not p8_sn:
+            raise serializers.ValidationError({
+                'p8_device_sn': "Trendit P8 uchun qurilma seriya raqami (SN) kiritish shart."
+            })
+        if not p8_key:
+            raise serializers.ValidationError({
+                'p8_key': "Trendit P8 uchun API kaliti kiritish shart."
+            })
     return data
 
 
@@ -65,6 +76,7 @@ for _name, _field in _ORDER_OPTIONAL_FIELDS.items():
 
 _PRINTER_BASE_FIELDS = [
     'name', 'connection_type', 'ip_address', 'port', 'usb_path',
+    'p8_device_sn', 'p8_key', 'p8_api_url',
     'printer_model', 'paper_width', 'is_active', 'auto_print', 'is_admin',
 ]
 
@@ -111,6 +123,8 @@ class PrinterListSerializer(serializers.ModelSerializer):
             return f"{obj.ip_address}:{obj.port}" if obj.ip_address else ''
         if obj.connection_type == Printer.CONNECTION_USB:
             return obj.usb_path or ''
+        if obj.connection_type == Printer.CONNECTION_P8:
+            return f"SN:{obj.p8_device_sn}" if obj.p8_device_sn else 'P8 (SN yo\'q)'
         return ''
 
 
