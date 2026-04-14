@@ -18,7 +18,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _pendingCount = 0;
   int _printedCount = 0;
   int _errorCount = 0;
-  List<dynamic> _jobs = [];
   Timer? _timer;
 
   @override
@@ -54,7 +53,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final jobs = await ApiService.pollJobs();
       setState(() {
-        _jobs = jobs;
         _pendingCount = jobs.length;
         _connected = true;
       });
