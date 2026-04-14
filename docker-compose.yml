@@ -7,7 +7,6 @@ services:
       - "9090:9000"
     volumes:
       - xprinter_data:/data
-      - ./db.sqlite3:/app/db.sqlite3
     restart: unless-stopped
     environment:
       - DJANGO_SETTINGS_MODULE=settings
