@@ -11,7 +11,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _serverCtrl = TextEditingController();
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _loading = false;
@@ -21,24 +20,22 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _serverCtrl.text = ApiService.serverUrl;
     _userCtrl.text = ApiService.username;
   }
 
   Future<void> _login() async {
-    final server = _serverCtrl.text.trim();
     final user = _userCtrl.text.trim();
     final pass = _passCtrl.text.trim();
-    if (server.isEmpty || user.isEmpty || pass.isEmpty) {
+    if (user.isEmpty || pass.isEmpty) {
       setState(() => _error = "Barcha maydonlarni to'ldiring");
       return;
     }
     setState(() { _loading = true; _error = null; });
     try {
-      final data = await ApiService.login(server, user, pass);
+      final data = await ApiService.login(user, pass);
       if (data["success"] == true) {
         await ApiService.saveConfig(
-          serverUrl: server, username: user, password: pass,
+          username: user, password: pass,
           businessId: data["business_id"], businessName: data["business_name"] ?? "",
         );
         if (mounted) {
@@ -92,10 +89,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     const Text("Tizimga kirish", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.text)),
                     const SizedBox(height: 4),
-                    const Text("Server manzili va login kiriting", style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+                    const Text("Login va parolingizni kiriting", style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
                     const SizedBox(height: 24),
-                    TextField(controller: _serverCtrl, decoration: const InputDecoration(labelText: "Server manzili", hintText: "http://192.168.1.100:9090", prefixIcon: Icon(Icons.dns_outlined)), keyboardType: TextInputType.url),
-                    const SizedBox(height: 14),
                     TextField(controller: _userCtrl, decoration: const InputDecoration(labelText: "Login", prefixIcon: Icon(Icons.person_outline))),
                     const SizedBox(height: 14),
                     TextField(controller: _passCtrl, obscureText: _obscure, decoration: InputDecoration(labelText: "Parol", prefixIcon: const Icon(Icons.lock_outline), suffixIcon: IconButton(icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _obscure = !_obscure))), onSubmitted: (_) => _login()),

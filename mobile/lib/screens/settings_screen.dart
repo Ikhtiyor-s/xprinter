@@ -3,34 +3,12 @@ import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
 
-class _SettingsScreenState extends State<SettingsScreen> {
-  final _serverCtrl = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _serverCtrl.text = ApiService.serverUrl;
-  }
-
-  void _save() async {
-    await ApiService.saveConfig(serverUrl: _serverCtrl.text.trim());
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Saqlandi"), backgroundColor: AppColors.success),
-      );
-      Navigator.pop(context);
-    }
-  }
-
-  void _logout() async {
+  void _logout(BuildContext context) async {
     await ApiService.clearConfig();
-    if (mounted) {
+    if (context.mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false,
       );
@@ -48,20 +26,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text("Server", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 12),
-              TextField(controller: _serverCtrl, decoration: const InputDecoration(labelText: "Server URL", prefixIcon: Icon(Icons.dns_outlined))),
-              const SizedBox(height: 16),
-              SizedBox(width: double.infinity, height: 48, child: ElevatedButton.icon(
-                onPressed: _save, icon: const Icon(Icons.save), label: const Text("Saqlash"),
-              )),
-            ]),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text("Hisob", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               ListTile(
@@ -73,7 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.logout, color: AppColors.error),
                 title: const Text("Tizimdan chiqish", style: TextStyle(color: AppColors.error)),
-                onTap: _logout,
+                onTap: () => _logout(context),
               ),
             ]),
           ),
