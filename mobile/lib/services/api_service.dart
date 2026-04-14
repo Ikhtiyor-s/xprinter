@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String _baseUrl = 'https://prod.nonbor.uz';
+  static const String _baseUrl = 'https://printer.nonbor.uz';
 
   static String _username = '';
   static String _password = '';
@@ -20,7 +20,7 @@ class ApiService {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
     if (_username.isNotEmpty)
-      'Authorization': 'Basic ${base64Encode(utf8.encode('$_username:$_password'))}',
+      'Authorization': 'Agent $_username:$_password',
   };
 
   static Future<void> loadConfig() async {
