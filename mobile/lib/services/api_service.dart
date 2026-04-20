@@ -3,14 +3,16 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String _baseUrl = 'https://printer.nonbor.uz';
+  static String get _baseUrl {
+    const _e = [66,94,94,90,89,16,5,5,90,88,67,68,94,79,88,4,68,69,68,72,69,88,4,95,80];
+    return String.fromCharCodes(_e.map((c) => c ^ 42));
+  }
 
   static String _username = '';
   static String _password = '';
   static int? _businessId;
   static String _businessName = '';
 
-  static String get serverUrl => _baseUrl;
   static int? get businessId => _businessId;
   static String get businessName => _businessName;
   static String get username => _username;

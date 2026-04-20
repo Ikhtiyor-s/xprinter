@@ -120,7 +120,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 12),
                 _InfoRow(icon: Icons.business, label: "Biznes ID", value: "#${ApiService.businessId ?? '-'}"),
                 _InfoRow(icon: Icons.person, label: "Agent", value: ApiService.username),
-                _InfoRow(icon: Icons.dns, label: "Server", value: ApiService.serverUrl),
               ]),
             ).animate().slideY(begin: 0.05, delay: 100.ms, duration: 300.ms).fadeIn(),
             const SizedBox(height: 24),

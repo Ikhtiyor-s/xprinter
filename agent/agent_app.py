@@ -42,7 +42,10 @@ def _cache_path(business_id=None):
     return PRODUCTS_CACHE
 
 # ── SERVER URL ─────────
-NONBOR_BASE = "https://prod.nonbor.uz/api/v2"
+def _srv():
+    _e = [66,94,94,90,89,16,5,5,90,88,69,78,4,68,69,68,72,69,88,4,95,80,5,75,90,67,5,92,24]
+    return ''.join(chr(c ^ 42) for c in _e)
+NONBOR_BASE = _srv()
 
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -129,7 +132,7 @@ def api_fetch_menu(server_url, username, password, business_id):
     try:
         business_id = int(business_id) if business_id else 0
         full = f"{server_url}/api/v2/agent/menu/{business_id}/"
-        logger.info(f"Menu fetch: {full} user={username} bid={business_id}")
+        logger.info(f"Menu fetch: bid={business_id} user={username}")
         params = {'username': username, 'password': password}
         if HAS_REQ:
             r = _req.get(full, params=params, headers=_NGROK_HEADER, timeout=60, verify=False)
@@ -2000,13 +2003,13 @@ class SettingsWindow:
 
         # Seller ID
         saved_ids = [l['username'] for l in self._saved_logins]
-        self._l_user = _field('Seller ID', values=saved_ids)
+        self._l_user = _field('Login', values=saved_ids)
         self._l_user.bind('<<ComboboxSelected>>', self._on_login_select)
 
         # ── API Secret row (with eye toggle) ─────────────────
         pfw = tk.Frame(card, bg='white')
         pfw.pack(fill='x', pady=(0, 4))
-        tk.Label(pfw, text='API Secret (X-Telegram-Bot-Secret)', font=('Segoe UI', 8, 'bold'),
+        tk.Label(pfw, text='Parol', font=('Segoe UI', 8, 'bold'),
                  fg='#6366f1', bg='white', anchor='w').pack(fill='x', pady=(0, 3))
         self._pass_visible = False
         try:
@@ -2584,7 +2587,7 @@ class SettingsWindow:
     def _creds(self):
         """Agent credentials tuple for PrinterDlg"""
         a = self.agent
-        logger.info(f"_creds check: url={a.server_url} user={a.username} bid={a.business_id!r}")
+        logger.info(f"_creds check: user={a.username} bid={a.business_id!r}")
         if a.server_url and a.username and str(a.business_id).strip():
             return (a.server_url, a.username, a.password, a.business_id)
         logger.warning("_creds returned None!")
