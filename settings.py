@@ -9,7 +9,8 @@ SECRET_KEY = _SECRET_KEY
 DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes')
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0').split(',')
 
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT    = os.path.join(BASE_DIR, 'staticfiles')
+DOWNLOADS_DIR  = os.environ.get('DOWNLOADS_DIR', os.path.join(BASE_DIR, 'downloads'))
 
 INSTALLED_APPS = [
     'django.contrib.admin',

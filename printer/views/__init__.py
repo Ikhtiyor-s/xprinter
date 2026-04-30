@@ -13,3 +13,4 @@ from .notification import NotificationListView, NotificationUnreadCountView, Not
 from .auth import AdminTokenLoginView, AdminTokenLogoutView  # noqa
 from .health import HealthCheckView  # noqa
 from .dashboard import agent_dashboard  # noqa
+from .downloads import DownloadListView, DownloadFileView, DownloadUploadView  # noqa

@@ -113,4 +113,11 @@ urlpatterns = [
     path('notification-config/save/', views.NotificationConfigSaveView.as_view(), name='notification-config-save'),
     path('notification-config/<int:business_id>/detail/', views.NotificationConfigDetailView.as_view(), name='notification-config-detail'),
     path('notification-config/test-telegram/', views.NotificationTestTelegramView.as_view(), name='notification-test-telegram'),
+
+    # ============================================================
+    # DOWNLOADS (Agent dasturlarini yuklab olish)
+    # ============================================================
+    path('downloads/', views.DownloadListView.as_view(), name='download-list'),
+    path('downloads/upload/', views.DownloadUploadView.as_view(), name='download-upload'),
+    path('downloads/<str:filename>', views.DownloadFileView.as_view(), name='download-file'),
 ]
