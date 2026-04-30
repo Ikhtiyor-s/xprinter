@@ -762,7 +762,8 @@ class Agent:
             self.log(f"API xato: {e}", 'error'); return
 
         if not data.get('success'):
-            self.log(f"Poll xato: {data.get('error', 'noma\\'lum')}", 'error')
+            _err = data.get('error', "noma'lum")
+            self.log(f"Poll xato: {_err}", 'error')
             return
 
         jobs = data.get('result', [])
