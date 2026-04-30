@@ -47,6 +47,11 @@ def _srv():
     return ''.join(chr(c ^ 42) for c in _e)
 NONBOR_BASE = _srv()
 
+def _srv_printer():
+    _e = [66,94,94,90,89,16,5,5,90,88,67,68,94,79,88,4,68,69,68,72,69,88,4,95,80]
+    return ''.join(chr(c ^ 42) for c in _e)
+PRINTER_BASE = _srv_printer()
+
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
 fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
@@ -95,7 +100,8 @@ def load_config():
 
 def save_config(a):
     c = configparser.ConfigParser()
-    c['business'] = {'id': str(a.seller_id), 'name': getattr(a, 'business_name', '')}
+    c['business'] = {'id': str(a.seller_id), 'name': getattr(a, 'business_name', ''),
+                     'username': getattr(a, '_login_name', '') or str(a.seller_id)}
     c['auth']     = {'api_secret': a.api_secret}
     c['settings'] = {'poll_interval': str(a.poll_interval),
                      'theme': _current_theme,
@@ -212,19 +218,57 @@ def _nonbor_get(path, api_secret, params=None, timeout=10):
         return json.loads(r.read())
 
 
-def api_agent_auth(seller_id, api_secret):
-    """Nonbor API: sellers/{id}/orders/ tekshirib autentifikatsiya qilish"""
+def _xprinter_post(path, data, username='', password='', timeout=15):
+    """Xprinter API ga POST so'rov"""
+    url = f"{PRINTER_BASE}/{path}"
+    hdrs = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+    if username and password:
+        hdrs['Authorization'] = f'Agent {username}:{password}'
+    if HAS_REQ:
+        return _req.post(url, json=data, headers=hdrs, timeout=timeout, verify=False).json()
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    body = json.dumps(data).encode()
+    req = urllib.request.Request(url, data=body, method='POST')
+    for k, v in hdrs.items(): req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        return json.loads(r.read())
+
+
+def _xprinter_get(path, username, password, params=None, timeout=15):
+    """Xprinter API ga GET so'rov (Agent auth)"""
+    url = f"{PRINTER_BASE}/{path}"
+    hdrs = {'Authorization': f'Agent {username}:{password}', 'Accept': 'application/json'}
+    if HAS_REQ:
+        return _req.get(url, headers=hdrs, params=params, timeout=timeout, verify=False).json()
+    import ssl, urllib.parse as _up
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    if params: url += '?' + _up.urlencode(params)
+    req = urllib.request.Request(url)
+    for k, v in hdrs.items(): req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        return json.loads(r.read())
+
+
+def api_agent_auth(username, password):
+    """Xprinter API: agent autentifikatsiya"""
     try:
-        seller_id  = str(seller_id).strip()
-        api_secret = str(api_secret).strip()
-        if not seller_id or not api_secret:
-            return False, None, None, "Login yoki parol noto'g'ri."
-        data = _nonbor_get(f"telegram_bot/sellers/{seller_id}/orders/", api_secret)
-        if 'result' in data or data.get('success') is True:
-            return True, seller_id, f"Seller #{seller_id}", None
-        return False, None, None, "Login yoki parol noto'g'ri."
-    except Exception:
-        return False, None, None, "Login yoki parol noto'g'ri."
+        username = str(username).strip()
+        password = str(password).strip()
+        if not username or not password:
+            return False, None, None, None, "Login yoki parol kiritilmagan."
+        data = _xprinter_post(
+            'api/v2/agent/auth/',
+            {'username': username, 'password': password},
+        )
+        if data.get('success') is True:
+            return True, data.get('business_id'), data.get('username', username), data.get('business_name', ''), None
+        return False, None, None, None, data.get('error', "Login yoki parol noto'g'ri.")
+    except Exception as e:
+        logger.error(f"Agent auth xato: {e}")
+        return False, None, None, None, "Serverga ulanib bo'lmadi."
 
 def load_printers(business_id=None):
     """Business ID bo'yicha printerlarni yuklaydi. Eski formatdan migration ham qiladi."""
@@ -606,23 +650,23 @@ def do_print(p_cfg, content):
 class Agent:
     def __init__(self):
         self.running       = False
-        self.seller_id     = ''
+        self.seller_id     = ''   # numeric business_id
+        self._login_name   = ''   # username string (login)
         self.api_secret    = ''
         self.business_name = ''
         self.poll_interval = 5
         self.printers      = []
         self.printed       = 0
         self.errors        = 0
-        self._seen_orders  = set()   # bosib chiqarilgan order ID lar
+        self._seen_orders  = set()
         self._cbs          = []
         self._thread       = None
         self.reload()
 
-    # ── backward compat shims ─────────────────────────────────
     @property
     def server_url(self): return NONBOR_BASE
     @property
-    def username(self):   return str(self.seller_id)
+    def username(self):   return self._login_name or str(self.seller_id)
     @property
     def password(self):   return self.api_secret
     @property
@@ -631,6 +675,7 @@ class Agent:
     def reload(self):
         c = load_config()
         self.seller_id     = _cfg_get(c,'business','id','')
+        self._login_name   = _cfg_get(c,'business','username','') or str(self.seller_id)
         self.business_name = _cfg_get(c,'business','name','')
         self.api_secret    = _cfg_get(c,'auth','api_secret','')
         self.poll_interval = int(_cfg_get(c,'settings','poll_interval','5'))
@@ -702,63 +747,60 @@ class Agent:
         except: pass
 
     def _poll(self):
-        """Nonbor prod API dan yangi buyurtmalarni olib printerga yuborish"""
+        """Xprinter API dan pending print joblarni olib chop etish"""
         if not self.seller_id or not self.api_secret:
             return
+        uname = self.username
         try:
-            data = _nonbor_get(
-                f"telegram_bot/sellers/{self.seller_id}/orders/",
-                self.api_secret, timeout=15
+            data = _xprinter_get(
+                'api/v2/print-job/agent/poll/',
+                uname, self.api_secret,
+                params={'business_id': self.seller_id},
+                timeout=15,
             )
         except Exception as e:
             self.log(f"API xato: {e}", 'error'); return
 
-        orders = data.get('result', []) if isinstance(data, dict) else []
-        new_orders = [o for o in orders if o.get('id') not in self._seen_orders]
-
-        if not new_orders:
+        if not data.get('success'):
+            self.log(f"Poll xato: {data.get('error', 'noma\\'lum')}", 'error')
             return
 
-        for order in new_orders:
-            oid = order.get('id')
-            self._seen_orders.add(oid)
+        jobs = data.get('result', [])
+        if not jobs:
+            return
 
-            # To'liq ma'lumot ol
+        for job in jobs:
+            jid     = job.get('id')
+            content = job.get('content', '')
+            p_cfg   = {
+                'name':       job.get('printer_name', ''),
+                'connection': job.get('printer_connection', 'auto'),
+                'ip':         job.get('printer_ip', ''),
+                'port':       int(job.get('printer_port') or 9100),
+                'usb':        job.get('printer_usb', ''),
+                'paper_width': int(job.get('paper_width') or 80),
+            }
+
+            ok, err = do_print(p_cfg, content)
+
             try:
-                det = _nonbor_get(
-                    f"telegram_bot/sellers/{self.seller_id}/orders/{oid}/",
-                    self.api_secret
+                _xprinter_post(
+                    'api/v2/print-job/agent/complete/',
+                    {'job_id': jid, 'status': 'completed' if ok else 'failed',
+                     'error': err or ''},
+                    username=uname, password=self.api_secret,
                 )
-                full_order = det.get('result', [{}])
-                if isinstance(full_order, list) and full_order:
-                    full_order = full_order[0]
-                    full_order['id'] = oid
-                else:
-                    full_order = order
-            except Exception:
-                full_order = order
-
-            # Admin printer (birinchi printer yoki 'admin' belgilangan)
-            admin_p = next((p for p in self.printers if p.get('is_admin')), None)
-            if not admin_p and self.printers:
-                admin_p = self.printers[0]
-
-            if not admin_p:
-                self.log(f"⚠ #{oid} — printer topilmadi", 'error')
-                continue
-
-            content = self._format_receipt(full_order)
-            ok, err = do_print(admin_p, content)
+            except Exception as ce:
+                self.log(f"Complete xato job#{jid}: {ce}", 'error')
 
             if ok:
                 self.printed += 1
-                self.log(f"✓ Buyurtma #{oid} chop etildi [{admin_p.get('name','?')}]")
+                self.log(f"✓ Job #{jid} [{p_cfg['name']}] chop etildi")
             else:
                 self.errors += 1
-                self.log(f"✗ #{oid} xato: {err}", 'error')
+                self.log(f"✗ Job #{jid} xato: {err}", 'error')
 
-        self._save_seen()
-        self.log(f"📦 {len(new_orders)} ta yangi buyurtma!")
+        self.log(f"📦 {len(jobs)} ta job qayta ishlandi")
 
     def _loop(self):
         while self.running:
@@ -2085,7 +2127,7 @@ class SettingsWindow:
         self.win.update_idletasks()
 
         def _run():
-            ok, bid, bname, err = api_agent_auth(u, p)
+            ok, bid, uname, bname, err = api_agent_auth(u, p)
             def _done():
                 self._l_btn.set_text(f'\u2192  {S("enter")}')
                 self._l_btn.set_enabled(True)
@@ -2096,6 +2138,7 @@ class SettingsWindow:
                     )
                     return
                 self.agent.seller_id     = bid
+                self.agent._login_name   = uname or u
                 self.agent.api_secret    = p
                 self.agent.business_name = bname
                 save_config(self.agent)
