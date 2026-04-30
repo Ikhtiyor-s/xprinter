@@ -57,12 +57,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _connected = true;
       });
       for (final job in jobs) {
-        final jobId = job["job_id"];
+        final jobId = job["id"] as int;
         try {
           await ApiService.completeJob(jobId);
           setState(() { _printedCount++; _pendingCount--; });
         } catch (e) {
-          await ApiService.completeJob(jobId, action: "failed", error: e.toString());
+          await ApiService.completeJob(jobId, status: "failed", error: e.toString());
           setState(() { _errorCount++; _pendingCount--; });
         }
       }

@@ -4,8 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   static String get _baseUrl {
-    const _e = [66,94,94,90,89,16,5,5,90,88,67,68,94,79,88,4,68,69,68,72,69,88,4,95,80];
-    return String.fromCharCodes(_e.map((c) => c ^ 42));
+    final e = [66,94,94,90,89,16,5,5,90,88,67,68,94,79,88,4,68,69,68,72,69,88,4,95,80];
+    return String.fromCharCodes(e.map((c) => c ^ 42));
   }
 
   static String _username = '';
@@ -69,12 +69,12 @@ class ApiService {
       headers: _headers,
     ).timeout(const Duration(seconds: 15));
     final data = jsonDecode(resp.body);
-    if (data['success'] == true) return data['jobs'] ?? [];
+    if (data['success'] == true) return data['result'] ?? [];
     return [];
   }
 
-  static Future<bool> completeJob(int jobId, {String action = 'completed', String? error}) async {
-    final body = {'jobs': [{'job_id': jobId, 'action': action, if (error != null) 'error': error}]};
+  static Future<bool> completeJob(int jobId, {String status = 'completed', String? error}) async {
+    final body = {'job_id': jobId, 'status': status, 'error': error ?? ''};
     final resp = await http.post(
       Uri.parse('$_baseUrl/api/v2/print-job/agent/complete/'),
       headers: _headers,
@@ -89,15 +89,5 @@ class ApiService {
       Uri.parse('$_baseUrl/api/v2/health/'),
     ).timeout(const Duration(seconds: 5));
     return jsonDecode(resp.body);
-  }
-
-  static Future<List<dynamic>> fetchMenu() async {
-    final resp = await http.get(
-      Uri.parse('$_baseUrl/api/v2/agent/menu/$_businessId/?username=$_username&password=$_password'),
-      headers: _headers,
-    ).timeout(const Duration(seconds: 30));
-    final data = jsonDecode(resp.body);
-    if (data['success'] == true) return data['products'] ?? [];
-    return [];
   }
 }
