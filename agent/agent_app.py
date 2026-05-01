@@ -1970,33 +1970,20 @@ class SettingsWindow:
         except Exception:
             tk.Frame(card, bg='#6366f1', height=6).pack(fill='x', pady=(0, 10))
 
-        # ── Circular logo badge ──────────────────────────────
+        # ── Logo ─────────────────────────────────────────────
         try:
-            from PIL import Image, ImageDraw, ImageTk
+            from PIL import Image, ImageTk
             _base = os.path.dirname(os.path.abspath(__file__))
             _ico_path = os.path.join(_base, 'icon.png')
             if not os.path.exists(_ico_path):
-                _ico_path = os.path.join(_base, 'icon.ico')
-            if not os.path.exists(_ico_path):
                 _ico_path = os.path.join(BASE_DIR, 'icon.png')
-            _icon_src = Image.open(_ico_path).resize((44, 44), Image.LANCZOS).convert('RGBA')
-            _badge = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
-            _bd = ImageDraw.Draw(_badge)
-            _bc1, _bc2 = (79, 70, 229), (124, 58, 237)
-            for _x in range(64):
-                _t = _x / 63
-                _bd.line([(_x, 0), (_x, 63)],
-                         fill=tuple(int(_bc1[i]*(1-_t)+_bc2[i]*_t) for i in range(3))+(255,))
-            _bmask = Image.new('L', (64, 64), 0)
-            ImageDraw.Draw(_bmask).ellipse([0, 0, 63, 63], fill=255)
-            _badge.putalpha(_bmask)
-            _badge.paste(_icon_src, (10, 10), _icon_src)
-            _badge_ref = ImageTk.PhotoImage(_badge)
-            _bl = tk.Label(card, image=_badge_ref, bg='white', bd=0)
-            _bl.image = _badge_ref
+            _logo_img = Image.open(_ico_path).resize((72, 72), Image.LANCZOS).convert('RGBA')
+            _logo_ref = ImageTk.PhotoImage(_logo_img)
+            _bl = tk.Label(card, image=_logo_ref, bg='white', bd=0)
+            _bl.image = _logo_ref
             _bl.pack(pady=(0, 6))
         except Exception:
-            tk.Label(card, text='\U0001f5a8', font=('Segoe UI', 28), bg='white').pack(pady=(0, 6))
+            tk.Label(card, text='', font=('Segoe UI', 28), bg='white').pack(pady=(0, 6))
 
         # ── Title + subtitle ─────────────────────────────────
         title_row = tk.Frame(card, bg="white")
