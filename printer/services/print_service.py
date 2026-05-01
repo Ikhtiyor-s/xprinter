@@ -287,7 +287,7 @@ def build_kitchen_receipt(printer, order_data, items, other_printer_items=None, 
     scheduled_time = order_data.get('scheduled_time', '').strip()
     if scheduled_time:
         rb.add_text("*** REJA BUYURTMA ***", bold=True, center=True, double=True)
-        rb.add_text(f"Vaqti: {scheduled_time}", bold=True, center=True)
+        rb.add_text(f"Sana va vaqt: {scheduled_time}", bold=True, center=True)
 
     rb.add_line()
 
