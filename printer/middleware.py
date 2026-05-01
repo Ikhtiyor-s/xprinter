@@ -65,8 +65,12 @@ class ApiKeyMiddleware:
             except Exception:
                 pass
 
-        # 4. AllowAny endpoint — DRF ga o'tkazish (agent/auth kabi)
-        # Agent auth endpointi uchun body dan tekshirish DRF ga qoldiriladi
+        # 4. Webhook — X-Webhook-Secret bilan DRF WebhookAuthentication handle qiladi
+        webhook_secret = request.headers.get('X-Webhook-Secret', '')
+        if webhook_secret:
+            return self.get_response(request)
+
+        # 5. AllowAny endpoint — agent/auth body dan tekshiriladi
         if path.startswith('/api/v2/agent/auth'):
             return self.get_response(request)
 
