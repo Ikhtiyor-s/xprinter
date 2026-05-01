@@ -52,6 +52,9 @@ def _srv_printer():
     return ''.join(chr(c ^ 42) for c in _e)
 PRINTER_BASE = _srv_printer()
 
+IS_TEST = False  # True — test build uchun build_test.bat ishlatiladi
+TEST_SERVER = ''  # Test rejimda foydalanuvchi o'zi kiritadi
+
 # ── LOGGING ─────────────────────────────────────────────────
 fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
 fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
@@ -106,6 +109,8 @@ def save_config(a):
     c['settings'] = {'poll_interval': str(a.poll_interval),
                      'theme': _current_theme,
                      'language': _current_lang}
+    if IS_TEST and TEST_SERVER:
+        c['test'] = {'server_url': TEST_SERVER}
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f: c.write(f)
 
 def is_logged_in():
@@ -673,6 +678,7 @@ class Agent:
     def business_id(self): return str(self.seller_id)
 
     def reload(self):
+        global PRINTER_BASE, TEST_SERVER
         c = load_config()
         self.seller_id     = _cfg_get(c,'business','id','')
         self._login_name   = _cfg_get(c,'business','username','') or str(self.seller_id)
@@ -680,6 +686,11 @@ class Agent:
         self.api_secret    = _cfg_get(c,'auth','api_secret','')
         self.poll_interval = int(_cfg_get(c,'settings','poll_interval','5'))
         self.printers      = load_printers(self.seller_id)
+        if IS_TEST:
+            saved_srv = _cfg_get(c,'test','server_url','')
+            if saved_srv:
+                PRINTER_BASE = saved_srv
+                TEST_SERVER  = saved_srv
         # Ko'rilgan orderlarni yukla
         _seen_file = BASE_DIR / f'seen_orders_{self.seller_id}.json'
         if _seen_file.exists():
@@ -1984,8 +1995,13 @@ class SettingsWindow:
             tk.Label(card, text='\U0001f5a8', font=('Segoe UI', 28), bg='white').pack(pady=(0, 6))
 
         # ── Title + subtitle ─────────────────────────────────
-        tk.Label(card, text='NONBOR PRINT AGENT',
-                 font=('Segoe UI', 14, 'bold'), fg='#1e293b', bg='white').pack()
+        title_row = tk.Frame(card, bg="white")
+        title_row.pack()
+        tk.Label(title_row, text="NONBOR PRINT AGENT",
+                 font=("Segoe UI", 14, "bold"), fg="#1e293b", bg="white").pack(side="left")
+        if IS_TEST:
+            tk.Label(title_row, text=" TEST ", font=("Segoe UI", 9, "bold"),
+                     fg="white", bg="#ef4444").pack(side="left", padx=(6,0), pady=3)
         tk.Label(card, text='nonbor.uz \u2022 Chop etish agenti',
                  font=('Segoe UI', 9), fg='#94a3b8', bg='white').pack(pady=(2, 10))
 
@@ -2043,6 +2059,11 @@ class SettingsWindow:
                 ent.insert(0, default)
                 ent.pack(fill='x', ipady=5)
             return ent
+
+        # Test rejimda server URL maydoni
+        self._l_server = None
+        if IS_TEST:
+            self._l_server = _field('Server URL', default=TEST_SERVER or 'http://localhost:9090')
 
         # Seller ID
         saved_ids = [l['username'] for l in self._saved_logins]
@@ -2117,8 +2138,16 @@ class SettingsWindow:
 
     def _do_login(self):
         import threading
+        global PRINTER_BASE, TEST_SERVER
         u   = self._l_user.get().strip()
         p   = self._l_pass.get().strip()
+        if IS_TEST and self._l_server:
+            srv = self._l_server.get().strip().rstrip('/')
+            if not srv:
+                self._l_err.config(text='\u26a0  Server URL kiriting', fg='#ef4444')
+                return
+            PRINTER_BASE = srv
+            TEST_SERVER  = srv
         if not u or not p:
             self._l_err.config(text=f'\u26a0  {S("login_error")}', fg='#ef4444')
             return

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../config/flavor.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import 'dashboard_screen.dart';
@@ -11,8 +12,9 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _userCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
+  final _serverCtrl = TextEditingController();
+  final _userCtrl   = TextEditingController();
+  final _passCtrl   = TextEditingController();
   bool _loading = false;
   bool _obscure = true;
   String? _error;
@@ -20,23 +22,37 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _userCtrl.text = ApiService.username;
+    _userCtrl.text   = ApiService.username;
+    if (kIsTest) _serverCtrl.text = ApiService.baseUrl;
+  }
+
+  @override
+  void dispose() {
+    _serverCtrl.dispose();
+    _userCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _login() async {
-    final user = _userCtrl.text.trim();
-    final pass = _passCtrl.text.trim();
-    if (user.isEmpty || pass.isEmpty) {
+    final user   = _userCtrl.text.trim();
+    final pass   = _passCtrl.text.trim();
+    final server = kIsTest ? _serverCtrl.text.trim() : null;
+
+    if (user.isEmpty || pass.isEmpty || (kIsTest && (server?.isEmpty ?? true))) {
       setState(() => _error = "Barcha maydonlarni to'ldiring");
       return;
     }
+    if (kIsTest) await ApiService.saveConfig(testServerUrl: server);
+
     setState(() { _loading = true; _error = null; });
     try {
       final data = await ApiService.login(user, pass);
       if (data["success"] == true) {
         await ApiService.saveConfig(
           username: user, password: pass,
-          businessId: data["business_id"], businessName: data["business_name"] ?? "",
+          businessId: data["business_id"],
+          businessName: data["business_name"] ?? "",
         );
         if (mounted) {
           Navigator.of(context).pushReplacement(
@@ -89,19 +105,56 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     const Text("Tizimga kirish", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.text)),
                     const SizedBox(height: 4),
-                    const Text("Login va parolingizni kiriting", style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+                    Text(
+                      kIsTest ? "Test server, login va parol kiriting" : "Login va parolingizni kiriting",
+                      style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                    ),
                     const SizedBox(height: 24),
+                    if (kIsTest) ...[
+                      TextField(
+                        controller: _serverCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Server URL",
+                          hintText: "http://192.168.1.100:9090",
+                          prefixIcon: Icon(Icons.dns_outlined),
+                        ),
+                        keyboardType: TextInputType.url,
+                      ),
+                      const SizedBox(height: 14),
+                    ],
                     TextField(controller: _userCtrl, decoration: const InputDecoration(labelText: "Login", prefixIcon: Icon(Icons.person_outline))),
                     const SizedBox(height: 14),
-                    TextField(controller: _passCtrl, obscureText: _obscure, decoration: InputDecoration(labelText: "Parol", prefixIcon: const Icon(Icons.lock_outline), suffixIcon: IconButton(icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _obscure = !_obscure))), onSubmitted: (_) => _login()),
+                    TextField(
+                      controller: _passCtrl,
+                      obscureText: _obscure,
+                      decoration: InputDecoration(
+                        labelText: "Parol",
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () => setState(() => _obscure = !_obscure),
+                        ),
+                      ),
+                      onSubmitted: (_) => _login(),
+                    ),
                     const SizedBox(height: 8),
-                    if (_error != null) Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppColors.error.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)), child: Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13))),
+                    if (_error != null)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
+                      ),
                     const SizedBox(height: 20),
                     SizedBox(height: 52, child: ElevatedButton(
                       onPressed: _loading ? null : _login,
                       child: _loading
                         ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.login_rounded), SizedBox(width: 8), Text("Kirish")]),
+                        : const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            Icon(Icons.login_rounded), SizedBox(width: 8), Text("Kirish"),
+                          ]),
                     )),
                   ]),
                 ).animate().slideY(begin: 0.1, duration: 400.ms, curve: Curves.easeOut).fadeIn(),
