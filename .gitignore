@@ -46,3 +46,9 @@ mobile/.flutter-plugins-dependencies
 mobile/.packages
 mobile/pubspec.lock
 *.apk
+
+# Build artifacts va test fayllar
+obf/
+agent/server_url.txt
+*.zip
+*.exe
