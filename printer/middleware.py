@@ -1,11 +1,12 @@
 """API Key authentication middleware for xprinter"""
 import os
+import base64
+import logging
 from django.http import JsonResponse
 
+logger = logging.getLogger(__name__)
+
 API_SECRET_KEY = os.environ.get('API_SECRET_KEY', '')
-if not API_SECRET_KEY:
-    import warnings
-    warnings.warn("API_SECRET_KEY muhit o'zgaruvchisi o'rnatilmagan! Barcha so'rovlar Basic Auth bilan ishlaydi.", RuntimeWarning)
 
 # Auth talab qilmaydigan yo'llar
 PUBLIC_PATHS = {'/', '/health', '/admin/login/'}
@@ -13,7 +14,7 @@ PUBLIC_PREFIXES = ('/static/', '/media/', '/admin/')
 
 
 class ApiKeyMiddleware:
-    """X-API-Key yoki Basic Auth tekshiruvchi middleware"""
+    """X-API-Key, Basic Auth yoki Agent Auth tekshiruvchi middleware"""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -29,26 +30,47 @@ class ApiKeyMiddleware:
         if request.method == 'OPTIONS':
             return self.get_response(request)
 
-        # X-API-Key header tekshirish (faqat kalit mavjud bo'lganda)
+        # 1. X-API-Key header
         api_key = request.headers.get('X-API-Key', '')
         if API_SECRET_KEY and api_key == API_SECRET_KEY:
             return self.get_response(request)
 
-        # Basic Auth (mavjud agent auth) — backward compatible
         auth = request.headers.get('Authorization', '')
+
+        # 2. Basic Auth — Django admin user
         if auth.startswith('Basic '):
-            import base64
             try:
-                decoded = base64.b64decode(auth[6:]).decode()
+                decoded  = base64.b64decode(auth[6:]).decode()
                 username, password = decoded.split(':', 1)
                 from django.contrib.auth import authenticate
                 user = authenticate(username=username, password=password)
                 if user and user.is_active:
+                    request.user = user  # DRF IsAuthenticated uchun
                     return self.get_response(request)
             except Exception:
                 pass
 
+        # 3. Agent Auth — AgentCredential (mobile/desktop agent)
+        if auth.startswith('Agent '):
+            try:
+                token = auth[6:]
+                if ':' in token:
+                    username, password = token.split(':', 1)
+                    from printer.models import AgentCredential
+                    cred = AgentCredential.objects.get(
+                        username=username.strip(), is_active=True
+                    )
+                    if cred.check_password(password.strip()):
+                        return self.get_response(request)
+            except Exception:
+                pass
+
+        # 4. AllowAny endpoint — DRF ga o'tkazish (agent/auth kabi)
+        # Agent auth endpointi uchun body dan tekshirish DRF ga qoldiriladi
+        if path.startswith('/api/v2/agent/auth'):
+            return self.get_response(request)
+
         return JsonResponse(
-            {'success': False, 'error': 'API kalit noto\'g\'ri yoki berilmagan'},
-            status=401
+            {'success': False, 'error': 'Autentifikatsiya talab qilinadi'},
+            status=401,
         )
