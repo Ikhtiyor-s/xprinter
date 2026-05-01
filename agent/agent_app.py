@@ -1870,12 +1870,13 @@ class SettingsWindow:
         # ── Title bar icon
         try:
             from PIL import Image, ImageTk
-            _ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico')
+            _base = os.path.dirname(os.path.abspath(__file__))
+            _ico_path = os.path.join(_base, 'icon.png')
             if not os.path.exists(_ico_path):
-                _ico_path = os.path.join(BASE_DIR, 'icon.ico')
+                _ico_path = os.path.join(_base, 'icon.ico')
             _ico_img = ImageTk.PhotoImage(Image.open(_ico_path).resize((32, 32), Image.LANCZOS))
             self.win.iconphoto(True, _ico_img)
-            self._ico_ref = _ico_img  # GC dan saqlash
+            self._ico_ref = _ico_img
         except Exception:
             pass
 
@@ -1926,7 +1927,7 @@ class SettingsWindow:
 
     # ── LOGIN FRAME ───────────────────────────────────────────
     def _show_login(self):
-        self.win.geometry("480x570")
+        self.win.geometry("480x640" if IS_TEST else "480x570")
         if self._main_frame:
             self._main_frame.pack_forget()
         if self._login_frame:
@@ -1972,9 +1973,12 @@ class SettingsWindow:
         # ── Circular logo badge ──────────────────────────────
         try:
             from PIL import Image, ImageDraw, ImageTk
-            _ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico')
+            _base = os.path.dirname(os.path.abspath(__file__))
+            _ico_path = os.path.join(_base, 'icon.png')
             if not os.path.exists(_ico_path):
-                _ico_path = os.path.join(BASE_DIR, 'icon.ico')
+                _ico_path = os.path.join(_base, 'icon.ico')
+            if not os.path.exists(_ico_path):
+                _ico_path = os.path.join(BASE_DIR, 'icon.png')
             _icon_src = Image.open(_ico_path).resize((44, 44), Image.LANCZOS).convert('RGBA')
             _badge = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
             _bd = ImageDraw.Draw(_badge)
