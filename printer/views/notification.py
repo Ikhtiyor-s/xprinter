@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class NotificationListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/notification/list/?business_id=X&is_read=false"""
 
     def get(self, request):
@@ -93,7 +94,7 @@ class NotificationListView(APIView):
 
 
 class NotificationUnreadCountView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/notification/unread-count/?business_id=X"""
 
     def get(self, request):
@@ -112,7 +113,7 @@ class NotificationUnreadCountView(APIView):
 
 
 class NotificationMarkReadView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/notification/mark-read/
     Body: { ids: [1,2,3] }  yoki  { all: true, business_id: X }"""
 
@@ -141,7 +142,7 @@ class NotificationMarkReadView(APIView):
 
 
 class NotificationConfigSaveView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/notification-config/save/ — upsert"""
 
     def post(self, request):
@@ -176,7 +177,7 @@ class NotificationConfigSaveView(APIView):
 
 
 class NotificationConfigDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/notification-config/{business_id}/detail/"""
 
     def get(self, request, business_id):
@@ -192,7 +193,7 @@ class NotificationConfigDetailView(APIView):
 
 
 class NotificationTestTelegramView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/notification-config/test-telegram/"""
 
     def post(self, request):

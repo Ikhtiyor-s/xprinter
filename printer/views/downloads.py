@@ -8,6 +8,7 @@ from django.http import FileResponse, Http404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.parsers import MultiPartParser
 
 DOWNLOADS_DIR = Path(getattr(settings, 'DOWNLOADS_DIR', os.path.join(settings.BASE_DIR, 'downloads')))
@@ -56,7 +57,7 @@ class DownloadFileView(APIView):
 
 class DownloadUploadView(APIView):
     """POST /api/v2/downloads/upload/ — yangi versiya yuklash (admin only)"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     parser_classes = [MultiPartParser]
 
     def post(self, request):

@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
@@ -276,7 +277,7 @@ class NonborMenuView(APIView):
 
 
 class AgentCredentialListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/agent-credential/list/ - Barcha agent loginlar"""
 
     def get(self, request):
@@ -303,7 +304,7 @@ class AgentCredentialListView(APIView):
 
 
 class AgentCredentialCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/agent-credential/create/ - Yangi agent login qo'shish"""
 
     def post(self, request):
@@ -350,7 +351,7 @@ class AgentCredentialCreateView(APIView):
 
 
 class AgentCredentialUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """PUT /api/v2/agent-credential/{id}/update/"""
 
     def put(self, request, pk):
@@ -397,7 +398,7 @@ class AgentCredentialUpdateView(APIView):
 
 
 class AgentCredentialDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """DELETE /api/v2/agent-credential/{id}/delete/"""
 
     def delete(self, request, pk):

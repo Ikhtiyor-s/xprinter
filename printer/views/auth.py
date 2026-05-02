@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -125,7 +126,7 @@ class AdminTokenLoginView(APIView):
 
 class AdminTokenLogoutView(APIView):
     """POST /api/v2/admin/logout/ — tokenni o'chirish"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
 
     def post(self, request):
         try:

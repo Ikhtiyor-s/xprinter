@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class PrinterDetectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/printer/detect/ - Tizimda mavjud printerlarni aniqlash"""
 
     def get(self, request):
@@ -84,7 +85,7 @@ class PrinterDetectView(APIView):
 
 
 class PrinterCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/printer/create/ - Yangi printer qo'shish"""
 
     def post(self, request):
@@ -99,7 +100,7 @@ class PrinterCreateView(APIView):
 
 
 class PrinterListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/printer/list/?business_id= - Printerlar ro'yxati"""
 
     def get(self, request):
@@ -122,7 +123,7 @@ class PrinterListView(APIView):
 
 
 class PrinterDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/printer/{id}/detail/ - Printer batafsil"""
 
     def get(self, request, pk):
@@ -142,7 +143,7 @@ class PrinterDetailView(APIView):
 
 
 class PrinterUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """PUT /api/v2/printer/{id}/update/ - Printerni tahrirlash"""
 
     def put(self, request, pk):
@@ -167,7 +168,7 @@ class PrinterUpdateView(APIView):
 
 
 class PrinterDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """DELETE /api/v2/printer/{id}/delete/ - Printerni o'chirish"""
 
     def delete(self, request, pk):
@@ -188,7 +189,7 @@ class PrinterDeleteView(APIView):
 
 
 class PrinterTestPrintView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/printer/{id}/test-print/ - Test sahifa chop etish"""
 
     def post(self, request, pk):

@@ -132,11 +132,11 @@ def get_seller_business_id(request):
 
 
 def enforce_business_id(request):
-    """business_id olish, yo'q bo'lsa xato qaytarish"""
+    """business_id olish — (biz_id, None) yoki (None, None) tuple qaytaradi."""
     biz_id = get_seller_business_id(request)
     if not biz_id:
         biz_id = request.query_params.get('business_id') or request.data.get('business_id')
-    return biz_id
+    return biz_id, None
 
 
 def validate_file_upload(uploaded_file, max_size_mb=5, allowed_types=None):

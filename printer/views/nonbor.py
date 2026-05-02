@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class NonborConfigCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/nonbor-config/create/ - Nonbor API sozlamasi yaratish"""
 
     def post(self, request):
@@ -103,7 +104,7 @@ class NonborConfigCreateView(APIView):
 
 
 class NonborConfigListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/nonbor-config/list/ - Nonbor sozlamalari"""
 
     def get(self, request):
@@ -126,7 +127,7 @@ class NonborConfigListView(APIView):
 
 
 class NonborConfigDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/nonbor-config/{business_id}/detail/"""
 
     def get(self, request, business_id):
@@ -149,7 +150,7 @@ class NonborConfigDetailView(APIView):
 
 
 class NonborConfigUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """PUT /api/v2/nonbor-config/{business_id}/update/"""
 
     def put(self, request, business_id):
@@ -177,7 +178,7 @@ class NonborConfigUpdateView(APIView):
 
 
 class NonborConfigDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """DELETE /api/v2/nonbor-config/{business_id}/delete/"""
 
     def delete(self, request, business_id):
@@ -205,7 +206,7 @@ class NonborConfigDeleteView(APIView):
 
 
 class NonborPollView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/nonbor/poll/{business_id}/
     Nonbor API dan yangi buyurtmalarni olib, chop etish.
     Frontend yoki cron bu endpointni chaqiradi."""
@@ -235,7 +236,7 @@ class NonborPollView(APIView):
 
 
 class NonborOrdersView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/nonbor/orders/{business_id}/
     Nonbor API dan hozirgi buyurtmalarni ko'rish (chop etmasdan)"""
 
@@ -263,7 +264,7 @@ class NonborOrdersView(APIView):
 
 
 class NonborPollStartView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/nonbor/poll-start/{business_id}/
     Avtomatik pollingni yoqish"""
 
@@ -287,7 +288,7 @@ class NonborPollStartView(APIView):
 
 
 class NonborPollStopView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/nonbor/poll-stop/{business_id}/
     Avtomatik pollingni o'chirish"""
 
@@ -311,7 +312,7 @@ class NonborPollStopView(APIView):
 
 
 class NonborPollAllView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/nonbor/poll-all/
     Barcha aktiv bizneslarni bir vaqtda Nonbor API dan polling qilish.
     Agent shu endpointni chaqiradi — har bir biznes uchun alohida poll_and_print."""

@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class ReceiptTemplateListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/receipt-template/list/?business_id="""
 
     def get(self, request):
@@ -86,7 +87,7 @@ class ReceiptTemplateListView(APIView):
 
 
 class ReceiptTemplateDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/receipt-template/<business_id>/detail/"""
 
     def get(self, request, business_id):
@@ -108,7 +109,7 @@ class ReceiptTemplateDetailView(APIView):
 
 
 class ReceiptTemplateSaveView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/receipt-template/save/
     Upsert: (business_id + template_type) bo'yicha mavjud bo'lsa yangilaydi, yo'q bo'lsa yaratadi"""
 
@@ -147,7 +148,7 @@ class ReceiptTemplateSaveView(APIView):
 
 
 class ReceiptTemplateDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """DELETE /api/v2/receipt-template/<business_id>/delete/?template_type=delivery"""
 
     def delete(self, request, business_id):

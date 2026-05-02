@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class PrinterCategoryAssignView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/printer-category/assign/ - Kategoriyani printerga ulash"""
 
     def post(self, request):
@@ -92,7 +93,7 @@ class PrinterCategoryAssignView(APIView):
 
 
 class PrinterCategoryListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/printer-category/list/?business_id=&printer_id="""
 
     def get(self, request):
@@ -120,7 +121,7 @@ class PrinterCategoryListView(APIView):
 
 
 class PrinterCategoryRemoveView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """DELETE /api/v2/printer-category/{id}/remove/"""
 
     def delete(self, request, pk):
@@ -141,7 +142,7 @@ class PrinterCategoryRemoveView(APIView):
 
 
 class PrinterCategoryBulkAssignView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/printer-category/bulk-assign/
     Ko'plab kategoriyalarni printerga ulash (avvalgilar o'chiriladi)"""
 
@@ -180,7 +181,7 @@ class PrinterCategoryBulkAssignView(APIView):
 
 
 class PrinterCategoryByPrinterView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/printer-category/by-printer/{printer_id}/"""
 
     def get(self, request, printer_id):

@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class PrinterProductAssignView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/printer-product/assign/ - Mahsulotni printerga ulash"""
 
     def post(self, request):
@@ -92,7 +93,7 @@ class PrinterProductAssignView(APIView):
 
 
 class PrinterProductListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/printer-product/list/?business_id=&printer_id="""
 
     def get(self, request):
@@ -120,7 +121,7 @@ class PrinterProductListView(APIView):
 
 
 class PrinterProductRemoveView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """DELETE /api/v2/printer-product/{id}/remove/"""
 
     def delete(self, request, pk):
@@ -141,7 +142,7 @@ class PrinterProductRemoveView(APIView):
 
 
 class PrinterProductBulkAssignView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/printer-product/bulk-assign/
     Ko'plab mahsulotlarni printerga ulash (shu printerdagi avvalgilar o'chiriladi)"""
 
@@ -180,7 +181,7 @@ class PrinterProductBulkAssignView(APIView):
 
 
 class PrinterProductByPrinterView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/printer-product/by-printer/{printer_id}/"""
 
     def get(self, request, printer_id):

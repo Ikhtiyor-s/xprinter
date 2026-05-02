@@ -1,6 +1,15 @@
 import os
+from pathlib import Path
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+try:
+    from dotenv import load_dotenv
+    _env = Path(BASE_DIR) / '.env'
+    if _env.exists():
+        load_dotenv(_env)
+except ImportError:
+    pass
 
 _SECRET_KEY = os.environ.get('SECRET_KEY', '')
 if not _SECRET_KEY:
@@ -65,7 +74,10 @@ DATABASES = {
 }
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.BasicAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
     'DEFAULT_PERMISSION_CLASSES': [
         'printer.permissions.XprinterApiKeyPermission',
     ],

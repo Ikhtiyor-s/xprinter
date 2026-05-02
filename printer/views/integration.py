@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class IntegrationTemplateListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/integration-template/list/"""
 
     def get(self, request):
@@ -82,7 +83,7 @@ class IntegrationTemplateListView(APIView):
 
 
 class IntegrationTemplateCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/integration-template/create/"""
 
     def post(self, request):
@@ -127,7 +128,7 @@ class IntegrationTemplateCreateView(APIView):
 
 
 class IntegrationTemplateUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """PUT /api/v2/integration-template/{id}/update/"""
 
     def put(self, request, pk):
@@ -156,7 +157,7 @@ class IntegrationTemplateUpdateView(APIView):
 
 
 class IntegrationTemplateDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """DELETE /api/v2/integration-template/{id}/delete/"""
 
     def delete(self, request, pk):

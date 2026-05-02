@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from printer.permissions import XprinterApiKeyPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class OrderServiceListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """GET /api/v2/order-service/list/?business_id=<id>"""
 
     def get(self, request):
@@ -83,7 +84,7 @@ class OrderServiceListView(APIView):
 
 
 class OrderServiceCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """POST /api/v2/order-service/create/"""
 
     def post(self, request):
@@ -122,7 +123,7 @@ class OrderServiceCreateView(APIView):
 
 
 class OrderServiceUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """PUT /api/v2/order-service/{id}/update/"""
 
     def put(self, request, pk):
@@ -143,7 +144,7 @@ class OrderServiceUpdateView(APIView):
 
 
 class OrderServiceDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [XprinterApiKeyPermission]
     """DELETE /api/v2/order-service/{id}/delete/"""
 
     def delete(self, request, pk):
