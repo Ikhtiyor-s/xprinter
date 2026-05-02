@@ -1306,26 +1306,55 @@ class PrinterDlg(tk.Toplevel):
 
 # ── SETTINGS WINDOW ──────────────────────────────────────────
 # ── THEMES ──
+# iOS 18 Design System
 THEMES = {
     'light': {
-        'BG': '#f0f4f8', 'BG2': '#ffffff', 'BG3': '#e2e8f0',
-        'ACCENT': '#4f46e5', 'RED': '#dc2626', 'GREEN': '#16a34a',
-        'PURPLE': '#7c3aed', 'ORANGE': '#ea580c',
-        'FG': '#1e293b', 'FGD': '#64748b',
-        'CARD': '#ffffff', 'BORDER': '#cbd5e1', 'HOVER': '#eef2ff',
-        'LOG_BG': '#1e293b', 'LOG_FG': '#a5b4fc',
-        'HEADER_BG': '#4f46e5', 'HEADER_FG': 'white', 'HEADER_SUB': '#c7d2fe',
-        'BTN_HOVER': '#4338ca',
+        # Backgrounds
+        'BG':        '#F2F2F7',   # systemGroupedBackground
+        'BG2':       '#EFEFF4',   # systemBackground
+        'BG3':       '#E5E5EA',   # tertiarySystemGroupedBackground
+        # Card / surfaces
+        'CARD':      '#FFFFFF',
+        'BORDER':    '#C6C6C8',   # separator
+        'HOVER':     '#F2F2F7',
+        # Text
+        'FG':        '#000000',   # label
+        'FGD':       '#8E8E93',   # secondaryLabel
+        # Accent / system colors
+        'ACCENT':    '#007AFF',   # systemBlue
+        'GREEN':     '#34C759',   # systemGreen
+        'RED':       '#FF3B30',   # systemRed
+        'ORANGE':    '#FF9500',   # systemOrange
+        'PURPLE':    '#5856D6',   # systemIndigo
+        'BTN_HOVER': '#0062CC',
+        # Header — subtle white bar
+        'HEADER_BG':  '#F2F2F7',
+        'HEADER_FG':  '#000000',
+        'HEADER_SUB': '#8E8E93',
+        # Log
+        'LOG_BG':    '#1C1C1E',
+        'LOG_FG':    '#30D158',
     },
     'dark': {
-        'BG': '#0f172a', 'BG2': '#1e293b', 'BG3': '#334155',
-        'ACCENT': '#818cf8', 'RED': '#f87171', 'GREEN': '#4ade80',
-        'PURPLE': '#a78bfa', 'ORANGE': '#fb923c',
-        'FG': '#f1f5f9', 'FGD': '#94a3b8',
-        'CARD': '#1e293b', 'BORDER': '#475569', 'HOVER': '#334155',
-        'LOG_BG': '#0f172a', 'LOG_FG': '#c7d2fe',
-        'HEADER_BG': '#312e81', 'HEADER_FG': '#e0e7ff', 'HEADER_SUB': '#818cf8',
-        'BTN_HOVER': '#4338ca',
+        'BG':        '#1C1C1E',
+        'BG2':       '#2C2C2E',
+        'BG3':       '#3A3A3C',
+        'CARD':      '#2C2C2E',
+        'BORDER':    '#38383A',
+        'HOVER':     '#3A3A3C',
+        'FG':        '#FFFFFF',
+        'FGD':       '#8E8E93',
+        'ACCENT':    '#0A84FF',
+        'GREEN':     '#30D158',
+        'RED':       '#FF453A',
+        'ORANGE':    '#FF9F0A',
+        'PURPLE':    '#5E5CE6',
+        'BTN_HOVER': '#0066CC',
+        'HEADER_BG':  '#1C1C1E',
+        'HEADER_FG':  '#FFFFFF',
+        'HEADER_SUB': '#8E8E93',
+        'LOG_BG':    '#000000',
+        'LOG_FG':    '#30D158',
     }
 }
 _current_theme = 'light'
@@ -1880,35 +1909,36 @@ class SettingsWindow:
         except Exception:
             pass
 
-        # ── Header (gradient-style)
-        h = tk.Frame(self.win, bg=T('HEADER_BG'), pady=10)
+        # ── Header — iOS 18 style (minimal, white bar)
+        h = tk.Frame(self.win, bg=T('HEADER_BG'), pady=12, padx=16)
         h.pack(fill='x')
+        # thin separator line
+        tk.Frame(self.win, bg=T('BORDER'), height=1).pack(fill='x')
 
-        # Logo + title yonma-yon
         try:
             from PIL import Image, ImageTk
-            _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico')
+            _base = os.path.dirname(os.path.abspath(__file__))
+            _logo_path = os.path.join(_base, 'icon.png')
             if not os.path.exists(_logo_path):
-                _logo_path = os.path.join(BASE_DIR, 'icon.ico')
-            _logo = ImageTk.PhotoImage(Image.open(_logo_path).resize((36, 36), Image.LANCZOS))
+                _logo_path = os.path.join(_base, 'icon.ico')
+            _logo = ImageTk.PhotoImage(Image.open(_logo_path).resize((28, 28), Image.LANCZOS))
             self._logo_ref = _logo
             hrow = tk.Frame(h, bg=T('HEADER_BG'))
-            hrow.pack()
+            hrow.pack(anchor='w')
             tk.Label(hrow, image=_logo, bg=T('HEADER_BG')).pack(side='left', padx=(0, 8))
             htxt = tk.Frame(hrow, bg=T('HEADER_BG'))
             htxt.pack(side='left')
             tk.Label(htxt, text=S('app_title'),
-                     font=('Segoe UI', 15, 'bold'), fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack(anchor='w')
+                     font=('SF Pro Display', 13, 'bold') if sys.platform=='darwin' else ('Segoe UI', 13, 'bold'),
+                     fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack(anchor='w')
             tk.Label(htxt, text=S('app_subtitle'),
-                     font=('Segoe UI', 9), fg=T('HEADER_SUB'), bg=T('HEADER_BG')).pack(anchor='w')
+                     font=('Segoe UI', 8), fg=T('HEADER_SUB'), bg=T('HEADER_BG')).pack(anchor='w')
         except Exception:
             tk.Label(h, text=S('app_title'),
-                     font=('Segoe UI', 15, 'bold'), fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack()
-            tk.Label(h, text=S('app_subtitle'),
-                     font=('Segoe UI', 9), fg=T('HEADER_SUB'), bg=T('HEADER_BG')).pack()
+                     font=('Segoe UI', 13, 'bold'), fg=T('HEADER_FG'), bg=T('HEADER_BG')).pack(anchor='w')
 
-        # ── Footer (always shown)
-        ft = tk.Frame(self.win, bg=T('BG3'), pady=7, padx=16)
+        # ── Footer
+        ft = tk.Frame(self.win, bg=T('BG2'), pady=7, padx=16)
         ft.pack(fill='x', side='bottom')
         tk.Frame(self.win, bg=T('BORDER'), height=1).pack(fill='x', side='bottom')
         self._auto = tk.BooleanVar(value=get_autostart())
@@ -2183,37 +2213,43 @@ class SettingsWindow:
         f.pack(fill='both', expand=True)
         self._main_frame = f
 
-        # ── Status bar (card style)
-        sb = tk.Frame(f, bg=T('CARD'), pady=10, padx=16, highlightbackground=T('BORDER'),
-                      highlightthickness=1)
-        sb.pack(fill='x', padx=12, pady=(10,0))
-        self._dot   = tk.Label(sb, text="\u25cf", font=('Segoe UI',18), fg=T('RED'), bg=T('CARD'))
+        # ── Status bar — iOS 18 style
+        sb = tk.Frame(f, bg=T('CARD'), pady=12, padx=16,
+                      highlightbackground=T('BORDER'), highlightthickness=1)
+        sb.pack(fill='x', padx=12, pady=(12, 0))
+        self._dot = tk.Label(sb, text='●', font=('Segoe UI', 14), fg=T('RED'), bg=T('CARD'))
         self._dot.pack(side='left')
-        info_f = tk.Frame(sb, bg=T('CARD')); info_f.pack(side='left', padx=8)
+        info_f = tk.Frame(sb, bg=T('CARD')); info_f.pack(side='left', padx=10)
         self._stlbl = tk.Label(info_f, text=S('stopped'),
-                                font=('Segoe UI',11,'bold'), fg=T('FG'), bg=T('CARD'))
+                               font=('Segoe UI', 11, 'bold'), fg=T('FG'), bg=T('CARD'))
         self._stlbl.pack(anchor='w')
-        biz = self.agent.business_name or f"Biznes #{self.agent.business_id}"
-        self._bizlbl = tk.Label(info_f, text=f"\U0001f464 {self.agent.username}  \u2022  {biz}",
-                                 font=('Segoe UI',9), fg=T('FGD'), bg=T('CARD'))
+        biz = self.agent.business_name or f'Biznes #{self.agent.business_id}'
+        self._bizlbl = tk.Label(info_f,
+                                text=f'{self.agent.username}  •  {biz}',
+                                font=('Segoe UI', 9), fg=T('FGD'), bg=T('CARD'))
         self._bizlbl.pack(anchor='w')
-        self._stats = tk.Label(sb, text="", font=('Segoe UI',9,'bold'), fg=T('FGD'), bg=T('CARD'))
+        self._stats = tk.Label(sb, text='', font=('Segoe UI', 9), fg=T('FGD'), bg=T('CARD'))
         self._stats.pack(side='right', padx=8)
-        self._togbtn = tk.Button(sb, text=f"\u25b6  {S('start')}",
-                                  command=self._toggle,
-                                  bg=T('GREEN'), fg='white',
-                                  font=('Segoe UI',10,'bold'),
-                                  relief='raised', bd=3, padx=18, pady=5, cursor='hand2',
-                                  activebackground='#15803d', activeforeground='white')
+        self._togbtn = tk.Button(sb, text=f'▶  {S("start")}',
+                                 command=self._toggle,
+                                 bg=T('GREEN'), fg='white',
+                                 font=('Segoe UI', 10, 'bold'),
+                                 relief='flat', bd=0, padx=16, pady=6,
+                                 cursor='hand2',
+                                 activebackground=T('GREEN'), activeforeground='white')
         self._togbtn.pack(side='right')
         ToolTip(self._togbtn, lambda: S('start'))
 
-        # ── Action buttons row
+        # ── Action buttons — iOS tinted
         uf = tk.Frame(f, bg=T('BG'), padx=12, pady=6); uf.pack(fill='x')
-        _b1 = self._btn(uf, f"\U0001f504  {S('refresh_products')}", '#059669', self._check_new_products); _b1.pack(side='left'); ToolTip(_b1, lambda: S('refresh_products'))
-        _b4 = self._btn(uf, f"\u2699 {S('settings')}", '#7c3aed', self._show_settings); _b4.pack(side='right', padx=(0,8)); ToolTip(_b4, lambda: S('settings'))
-        _b3 = self._btn(uf, f"\u2753 {S('help')}", '#6366f1', self._show_help); _b3.pack(side='right', padx=(0,4)); ToolTip(_b3, lambda: S('help'))
-        _b2 = self._btn(uf, f"\u21bb  {S('logout')}", '#94a3b8', self._do_logout); _b2.pack(side='right'); ToolTip(_b2, lambda: S('logout'))
+        _b1 = self._btn(uf, f'↺  {S("refresh_products")}', T('ACCENT'), self._check_new_products)
+        _b1.pack(side='left'); ToolTip(_b1, lambda: S('refresh_products'))
+        _b4 = self._btn(uf, f'⚙  {S("settings")}', T('FGD'), self._show_settings)
+        _b4.pack(side='right', padx=(0, 8)); ToolTip(_b4, lambda: S('settings'))
+        _b3 = self._btn(uf, '?', T('FGD'), self._show_help)
+        _b3.pack(side='right', padx=(0, 4)); ToolTip(_b3, lambda: S('help'))
+        _b2 = self._btn(uf, f'←  {S("logout")}', T('RED'), self._do_logout)
+        _b2.pack(side='right'); ToolTip(_b2, lambda: S('logout'))
 
         # ── Printers section (card)
         pc = tk.Frame(f, bg=T('CARD'), highlightbackground=T('BORDER'), highlightthickness=1)
@@ -2243,7 +2279,7 @@ class SettingsWindow:
         style = ttk.Style(); style.theme_use('default')
         style.configure('T.Treeview', background=T('BG2'), foreground=T('FG'),
                          fieldbackground=T('BG2'), rowheight=26, font=('Segoe UI',9))
-        style.configure('T.Treeview.Heading', background=T('HEADER_BG'), foreground=T('HEADER_FG'),
+        style.configure('T.Treeview.Heading', background=T('BG3'), foreground=T('FGD'),
                          font=('Segoe UI',9,'bold'), padding=4)
         style.map('T.Treeview', background=[('selected',T('HOVER'))],
                   foreground=[('selected',T('FG'))])

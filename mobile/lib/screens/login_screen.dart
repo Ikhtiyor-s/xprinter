@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/cupertino.dart';
 import '../config/flavor.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
@@ -22,7 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _userCtrl.text   = ApiService.username;
+    _userCtrl.text = ApiService.username;
     if (kIsTest) _serverCtrl.text = ApiService.baseUrl;
   }
 
@@ -56,13 +56,13 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         if (mounted) {
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const DashboardScreen()),
+            CupertinoPageRoute(builder: (_) => const DashboardScreen()),
           );
         }
       } else {
         setState(() => _error = data["error"] ?? "Login yoki parol xato");
       }
-    } catch (e) {
+    } catch (_) {
       setState(() => _error = "Serverga ulanib bo'lmadi");
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -72,97 +72,200 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter, end: Alignment.bottomCenter,
-            colors: [AppColors.primary, AppColors.primaryDark],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(children: [
+      backgroundColor: IosColors.systemGroupedBg,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            children: [
+              const SizedBox(height: 60),
+
+              // Logo + Title
+              Column(children: [
                 Container(
                   width: 80, height: 80,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
+                    color: IosColors.blue,
                     borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Icon(Icons.print_rounded, size: 44, color: Colors.white),
-                ).animate().scale(duration: 400.ms, curve: Curves.easeOut),
-                const SizedBox(height: 16),
-                const Text("NONBOR", style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 3)),
-                const Text("Print Agent", style: TextStyle(fontSize: 16, color: Colors.white70)),
-                const SizedBox(height: 40),
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white, borderRadius: BorderRadius.circular(24),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 30, offset: const Offset(0, 10))],
-                  ),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    const Text("Tizimga kirish", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.text)),
-                    const SizedBox(height: 4),
-                    Text(
-                      kIsTest ? "Test server, login va parol kiriting" : "Login va parolingizni kiriting",
-                      style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(height: 24),
-                    if (kIsTest) ...[
-                      TextField(
-                        controller: _serverCtrl,
-                        decoration: const InputDecoration(
-                          labelText: "Server URL",
-                          hintText: "http://192.168.1.100:9090",
-                          prefixIcon: Icon(Icons.dns_outlined),
-                        ),
-                        keyboardType: TextInputType.url,
+                    boxShadow: [
+                      BoxShadow(
+                        color: IosColors.blue.withValues(alpha: 0.35),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
                       ),
-                      const SizedBox(height: 14),
                     ],
-                    TextField(controller: _userCtrl, decoration: const InputDecoration(labelText: "Login", prefixIcon: Icon(Icons.person_outline))),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: _passCtrl,
-                      obscureText: _obscure,
-                      decoration: InputDecoration(
-                        labelText: "Parol",
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                          onPressed: () => setState(() => _obscure = !_obscure),
-                        ),
-                      ),
-                      onSubmitted: (_) => _login(),
-                    ),
-                    const SizedBox(height: 8),
-                    if (_error != null)
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.error.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
-                      ),
-                    const SizedBox(height: 20),
-                    SizedBox(height: 52, child: ElevatedButton(
-                      onPressed: _loading ? null : _login,
-                      child: _loading
-                        ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                            Icon(Icons.login_rounded), SizedBox(width: 8), Text("Kirish"),
-                          ]),
-                    )),
-                  ]),
-                ).animate().slideY(begin: 0.1, duration: 400.ms, curve: Curves.easeOut).fadeIn(),
+                  ),
+                  child: const Icon(CupertinoIcons.printer, size: 40, color: Colors.white),
+                ),
+                const SizedBox(height: 16),
+                const Text("Nonbor",
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700,
+                      letterSpacing: -0.5, color: IosColors.label)),
+                const SizedBox(height: 4),
+                Text(
+                  kIsTest ? "Print Agent · TEST" : "Print Agent",
+                  style: const TextStyle(fontSize: 15, color: IosColors.secondaryLabel),
+                ),
               ]),
-            ),
+
+              const SizedBox(height: 40),
+
+              // Form card
+              Container(
+                decoration: BoxDecoration(
+                  color: IosColors.card,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    if (kIsTest) ...[
+                      _Field(
+                        controller: _serverCtrl,
+                        label: "Server URL",
+                        hint: "http://192.168.1.100:9090",
+                        icon: CupertinoIcons.globe,
+                        keyboardType: TextInputType.url,
+                        isLast: false,
+                      ),
+                    ],
+                    _Field(
+                      controller: _userCtrl,
+                      label: "Login",
+                      hint: "login",
+                      icon: CupertinoIcons.person,
+                      isLast: false,
+                    ),
+                    _Field(
+                      controller: _passCtrl,
+                      label: "Parol",
+                      hint: "••••••••",
+                      icon: CupertinoIcons.lock,
+                      obscure: _obscure,
+                      onToggleObscure: () => setState(() => _obscure = !_obscure),
+                      onSubmit: _login,
+                      isLast: true,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Error
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: IosColors.redFill,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(children: [
+                    const Icon(CupertinoIcons.exclamationmark_circle, size: 16, color: IosColors.red),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(_error!, style: const TextStyle(fontSize: 14, color: IosColors.red))),
+                  ]),
+                ),
+              ],
+
+              const SizedBox(height: 20),
+
+              // Button
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: CupertinoButton(
+                  color: IosColors.blue,
+                  borderRadius: BorderRadius.circular(14),
+                  onPressed: _loading ? null : _login,
+                  padding: EdgeInsets.zero,
+                  child: _loading
+                    ? const CupertinoActivityIndicator(color: Colors.white)
+                    : const Text("Kirish",
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600,
+                            color: Colors.white, letterSpacing: -0.4)),
+                ),
+              ),
+
+              const SizedBox(height: 40),
+            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _Field extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final IconData icon;
+  final bool obscure;
+  final bool isLast;
+  final TextInputType? keyboardType;
+  final VoidCallback? onToggleObscure;
+  final VoidCallback? onSubmit;
+
+  const _Field({
+    required this.controller,
+    required this.label,
+    required this.hint,
+    required this.icon,
+    this.obscure = false,
+    this.isLast = false,
+    this.keyboardType,
+    this.onToggleObscure,
+    this.onSubmit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          child: Row(children: [
+            Icon(icon, size: 17, color: IosColors.blue),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 72,
+              child: Text(label, style: const TextStyle(
+                  fontSize: 15, color: IosColors.label)),
+            ),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                obscureText: obscure,
+                keyboardType: keyboardType,
+                textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
+                onSubmitted: onSubmit != null ? (_) => onSubmit!() : null,
+                style: const TextStyle(fontSize: 15, color: IosColors.label),
+                decoration: InputDecoration(
+                  hintText: hint,
+                  hintStyle: const TextStyle(color: IosColors.tertiaryLabel, fontSize: 15),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  suffixIcon: onToggleObscure != null
+                    ? GestureDetector(
+                        onTap: onToggleObscure,
+                        child: Icon(
+                          obscure ? CupertinoIcons.eye : CupertinoIcons.eye_slash,
+                          size: 18, color: IosColors.gray2,
+                        ),
+                      )
+                    : null,
+                ),
+              ),
+            ),
+          ]),
+        ),
+        if (!isLast)
+          const Padding(
+            padding: EdgeInsets.only(left: 45),
+            child: Divider(height: 1, thickness: 0.5, color: IosColors.separator),
+          ),
+      ],
     );
   }
 }

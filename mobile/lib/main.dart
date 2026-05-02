@@ -30,18 +30,12 @@ class NonborPrintApp extends StatelessWidget {
                     margin: const EdgeInsets.all(6),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(4),
+                      color: IosColors.red,
+                      borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Text(
-                      'TEST',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1,
-                      ),
-                    ),
+                    child: const Text('TEST',
+                      style: TextStyle(color: Colors.white, fontSize: 11,
+                          fontWeight: FontWeight.w800, letterSpacing: 1)),
                   ),
                 ),
               ),
