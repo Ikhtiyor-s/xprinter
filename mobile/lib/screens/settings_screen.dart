@@ -1,11 +1,33 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _version = '';
+  String _buildNumber = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    setState(() {
+      _version     = info.version;
+      _buildNumber = info.buildNumber;
+    });
+  }
 
   Future<void> _logout(BuildContext context) async {
     final ok = await showCupertinoDialog<bool>(
@@ -52,7 +74,7 @@ class SettingsScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               child: Column(children: [
 
-                // Account section
+                // Hisob
                 _sectionLabel("Hisob"),
                 const SizedBox(height: 8),
                 Container(
@@ -79,11 +101,8 @@ class SettingsScreen extends StatelessWidget {
                               ApiService.username.isNotEmpty
                                 ? ApiService.username[0].toUpperCase()
                                 : "A",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                              ),
+                              style: const TextStyle(color: Colors.white, fontSize: 20,
+                                  fontWeight: FontWeight.w700),
                             ),
                           ),
                         ),
@@ -114,7 +133,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 24),
 
-                // App info
+                // Ilova haqida
                 _sectionLabel("Ilova haqida"),
                 const SizedBox(height: 8),
                 Container(
@@ -127,7 +146,14 @@ class SettingsScreen extends StatelessWidget {
                       icon: CupertinoIcons.app_badge,
                       iconColor: IosColors.blue,
                       label: "Nonbor Print Agent",
-                      value: "v1.0.0",
+                      value: _version.isNotEmpty ? "v$_version" : "",
+                    ),
+                    const Divider(height: 1, thickness: 0.5, indent: 52, color: IosColors.separator),
+                    _SettingsRow(
+                      icon: CupertinoIcons.hammer,
+                      iconColor: IosColors.gray,
+                      label: "Build",
+                      value: _buildNumber.isNotEmpty ? "#$_buildNumber" : "",
                     ),
                     const Divider(height: 1, thickness: 0.5, indent: 52, color: IosColors.separator),
                     _SettingsRow(
@@ -138,6 +164,21 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ]),
                 ),
+                const SizedBox(height: 32),
+
+                // Versiya pastda katta ko'rsatiladi
+                if (_version.isNotEmpty)
+                  Column(children: [
+                    Text("v$_version",
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700,
+                          color: IosColors.label, letterSpacing: -0.5)),
+                    const SizedBox(height: 4),
+                    Text("Nonbor Print Agent",
+                      style: const TextStyle(fontSize: 13, color: IosColors.secondaryLabel)),
+                    const SizedBox(height: 4),
+                    Text("Build $_buildNumber",
+                      style: const TextStyle(fontSize: 12, color: IosColors.tertiaryLabel)),
+                  ]),
 
               ]),
             ),
@@ -191,18 +232,14 @@ class _SettingsRow extends StatelessWidget {
             child: Icon(icon, color: iconColor, size: 16),
           ),
           const SizedBox(width: 14),
-          Expanded(
-            child: Text(label, style: TextStyle(
-              fontSize: 16, color: labelColor ?? IosColors.label)),
-          ),
-          if (value != null)
-            Text(value!, style: const TextStyle(
-                fontSize: 15, color: IosColors.secondaryLabel)),
+          Expanded(child: Text(label,
+              style: TextStyle(fontSize: 16, color: labelColor ?? IosColors.label))),
+          if (value != null && value!.isNotEmpty)
+            Text(value!, style: const TextStyle(fontSize: 15, color: IosColors.secondaryLabel)),
           if (showChevron || onTap != null)
             const Padding(
               padding: EdgeInsets.only(left: 6),
-              child: Icon(CupertinoIcons.chevron_right,
-                  color: IosColors.gray2, size: 14),
+              child: Icon(CupertinoIcons.chevron_right, color: IosColors.gray2, size: 14),
             ),
         ]),
       ),
