@@ -258,19 +258,38 @@ def _xprinter_get(path, username, password, params=None, timeout=15):
 
 
 def api_agent_auth(username, password):
-    """Xprinter API: agent autentifikatsiya"""
+    """Xprinter API: agent autentifikatsiya.
+    1. /api/xprinter-in/agent/auth  (yangi server)
+    2. /api/webhook/agent-auth      (fallback — webhook path har doim ochiq)
+    """
     try:
         username = str(username).strip()
         password = str(password).strip()
         if not username or not password:
             return False, None, None, None, "Login yoki parol kiritilmagan."
+
+        # 1. Yangi endpoint
         data = _xprinter_post(
             'api/xprinter-in/agent/auth',
             {'username': username, 'password': password},
         )
         if data.get('success') is True:
             return True, data.get('business_id'), data.get('username', username), data.get('business_name', ''), None
-        return False, None, None, None, data.get('error', "Login yoki parol noto'g'ri.")
+
+        # 404 = eski server, boshqa xato = noto'g'ri parol
+        if 'Not Found' not in str(data) and data.get('status_code') != 404:
+            return False, None, None, None, data.get('error', "Login yoki parol noto'g'ri.")
+
+        # 2. Fallback: webhook path orqali
+        data2 = _xprinter_post(
+            'api/webhook/agent-auth',
+            {'username': username, 'password': password},
+        )
+        if data2.get('success') is True:
+            return True, data2.get('business_id'), data2.get('username', username), data2.get('business_name', ''), None
+
+        return False, None, None, None, data2.get('error', "Login yoki parol noto'g'ri.")
+
     except Exception as e:
         logger.error(f"Agent auth xato: {e}")
         return False, None, None, None, "Serverga ulanib bo'lmadi."
