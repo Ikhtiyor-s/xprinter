@@ -48,7 +48,7 @@ def _srv():
 NONBOR_BASE = _srv()
 
 def _srv_printer():
-    _e = [66,94,94,90,89,16,5,5,75,78,71,67,68,4,68,69,68,72,69,88,4,95,80,5,90,88,67,68,94,79,88,7,75,90,67]
+    _e = [66,94,94,90,89,16,5,5,75,78,71,67,68,4,68,69,68,72,69,88,4,95,80]
     return ''.join(chr(c ^ 42) for c in _e)
 PRINTER_BASE = _srv_printer()
 
@@ -265,7 +265,7 @@ def api_agent_auth(username, password):
         if not username or not password:
             return False, None, None, None, "Login yoki parol kiritilmagan."
         data = _xprinter_post(
-            'api/v2/agent/auth/',
+            'api/xprinter-in/agent/auth',
             {'username': username, 'password': password},
         )
         if data.get('success') is True:
@@ -764,7 +764,7 @@ class Agent:
         uname = self.username
         try:
             data = _xprinter_get(
-                'api/v2/print-job/agent/poll/',
+                'api/xprinter-in/agent/poll',
                 uname, self.api_secret,
                 params={'business_id': self.seller_id},
                 timeout=15,
@@ -797,8 +797,9 @@ class Agent:
 
             try:
                 _xprinter_post(
-                    'api/v2/print-job/agent/complete/',
-                    {'job_id': jid, 'status': 'completed' if ok else 'failed',
+                    'api/xprinter-in/print-result',
+                    {'order_id': jid, 'business_id': self.seller_id,
+                     'status': 'printed' if ok else 'failed',
                      'error': err or ''},
                     username=uname, password=self.api_secret,
                 )
