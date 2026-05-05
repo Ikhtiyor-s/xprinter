@@ -1954,139 +1954,131 @@ class SettingsWindow:
             self._show_main()
         else:
             self._show_login()
-
-    # ── LOGIN FRAME — iOS 18 ──────────────────────────────────────
+    # ── LOGIN FRAME ────────────────────────────────────────────────
     def _show_login(self):
-        self.win.geometry("440x540" if IS_TEST else "440x480")
-        if self._main_frame:
-            self._main_frame.pack_forget()
-        if self._login_frame:
-            self._login_frame.destroy()
-
+        h = 580 if IS_TEST else 520
+        self.win.geometry(f"420x{h}")
+        if self._main_frame:  self._main_frame.pack_forget()
+        if self._login_frame: self._login_frame.destroy()
         self._saved_logins = load_saved_logins()
 
-        # Root
         root = tk.Frame(self._content, bg=T('BG'))
         root.pack(fill='both', expand=True)
         self._login_frame = root
 
-        # ── Logo + Title ─────────────────────────────────────────────
-        top = tk.Frame(root, bg=T('BG'))
-        top.pack(pady=(32, 20))
-
+        # Logo + sarlavha
+        tk.Frame(root, bg=T('BG'), height=24).pack()
         try:
             from PIL import Image, ImageTk
             _base = os.path.dirname(os.path.abspath(__file__))
             _p = os.path.join(_base, 'icon.png')
-            if not os.path.exists(_p):
-                _p = os.path.join(_base, 'icon.ico')
-            _img = ImageTk.PhotoImage(Image.open(_p).resize((64, 64), Image.LANCZOS))
-            _lbl = tk.Label(top, image=_img, bg=T('BG'))
-            _lbl.image = _img
-            _lbl.pack()
+            if not os.path.exists(_p): _p = os.path.join(_base, 'icon.ico')
+            _img = ImageTk.PhotoImage(Image.open(_p).resize((60, 60), Image.LANCZOS))
+            lbl = tk.Label(root, image=_img, bg=T('BG'))
+            lbl.image = _img
+            lbl.pack()
         except Exception:
-            tk.Label(top, text='🖨', font=('Segoe UI', 32), bg=T('BG')).pack()
+            tk.Label(root, text='\U0001f5a8', font=('Segoe UI', 28), bg=T('BG')).pack()
 
-        title_row = tk.Frame(top, bg=T('BG'))
-        title_row.pack(pady=(8, 0))
+        tk.Frame(root, bg=T('BG'), height=8).pack()
+        title_row = tk.Frame(root, bg=T('BG'))
+        title_row.pack()
         tk.Label(title_row, text='NONBOR PRINT AGENT',
                  font=('Segoe UI', 13, 'bold'), fg=T('FG'), bg=T('BG')).pack(side='left')
         if IS_TEST:
-            tk.Label(title_row, text='  TEST ', font=('Segoe UI', 9, 'bold'),
-                     fg='white', bg=T('RED')).pack(side='left', padx=(6, 0), pady=2)
-        tk.Label(top, text='nonbor.uz', font=('Segoe UI', 9),
-                 fg=T('FGD'), bg=T('BG')).pack()
+            tk.Label(title_row, text=' TEST', font=('Segoe UI', 8, 'bold'),
+                     fg='white', bg=T('RED'), padx=4).pack(side='left', padx=(6,0), pady=3)
+        tk.Label(root, text='nonbor.uz \u2022 Chop etish agenti',
+                 font=('Segoe UI', 8), fg=T('FGD'), bg=T('BG')).pack()
+        tk.Frame(root, bg=T('BG'), height=20).pack()
 
-        # ── Form card ────────────────────────────────────────────────
-        card = tk.Frame(root, bg=T('CARD'),
-                        highlightbackground=T('BORDER'), highlightthickness=1)
-        card.pack(fill='x', padx=24)
+        # Card (1px border)
+        card_wrap = tk.Frame(root, bg=T('BORDER'), padx=1, pady=1)
+        card_wrap.pack(fill='x', padx=24)
+        card = tk.Frame(card_wrap, bg=T('CARD'))
+        card.pack(fill='x')
 
-        # Test: server URL maydoni
+        def _sep():
+            tk.Frame(card, bg=T('BORDER'), height=1).pack(fill='x', padx=16)
+
+        def _row(label):
+            f = tk.Frame(card, bg=T('CARD'), padx=16, pady=2)
+            f.pack(fill='x')
+            tk.Label(f, text=label, font=('Segoe UI', 8),
+                     fg=T('ACCENT'), bg=T('CARD'),
+                     width=6, anchor='w').pack(side='left', pady=(8, 0))
+            return f
+
+        # Server URL (test)
         self._l_server = None
         if IS_TEST:
-            _srv_frame = tk.Frame(card, bg=T('CARD'))
-            _srv_frame.pack(fill='x')
-            _srv_lbl = tk.Frame(_srv_frame, bg=T('CARD'), padx=14, pady=10)
-            _srv_lbl.pack(fill='x')
-            tk.Label(_srv_lbl, text='Server URL',
-                     font=('Segoe UI', 9), fg=T('ACCENT'), bg=T('CARD'),
-                     width=10, anchor='w').pack(side='left')
-            self._l_server = tk.Entry(_srv_lbl, font=('Segoe UI', 11),
-                                       bd=0, bg=T('CARD'), fg=T('FG'),
-                                       insertbackground=T('ACCENT'),
-                                       highlightthickness=0)
+            f = _row('Server')
+            self._l_server = tk.Entry(f, font=('Segoe UI', 11),
+                                      bd=0, bg=T('CARD'), fg=T('FG'),
+                                      insertbackground=T('ACCENT'),
+                                      highlightthickness=0, relief='flat')
             self._l_server.insert(0, TEST_SERVER or 'http://localhost:9090')
-            self._l_server.pack(side='left', fill='x', expand=True)
-            tk.Frame(card, bg=T('BORDER'), height=1).pack(fill='x', padx=0)
+            self._l_server.pack(side='left', fill='x', expand=True, ipady=7)
+            _sep()
 
-        # Login satri
-        _row1 = tk.Frame(card, bg=T('CARD'), padx=14, pady=10)
-        _row1.pack(fill='x')
-        tk.Label(_row1, text='Login',
-                 font=('Segoe UI', 9), fg=T('ACCENT'), bg=T('CARD'),
-                 width=6, anchor='w').pack(side='left')
+        # Login
         saved_ids = [l['username'] for l in self._saved_logins]
+        f_login = _row('Login')
         if saved_ids:
-            self._l_user = ttk.Combobox(_row1, values=saved_ids,
+            self._l_user = ttk.Combobox(f_login, values=saved_ids,
                                          font=('Segoe UI', 11), state='normal')
+            self._l_user.pack(side='left', fill='x', expand=True, ipady=4)
+            self._l_user.bind('<<ComboboxSelected>>', self._on_login_select)
         else:
-            self._l_user = tk.Entry(_row1, font=('Segoe UI', 11),
+            self._l_user = tk.Entry(f_login, font=('Segoe UI', 11),
                                      bd=0, bg=T('CARD'), fg=T('FG'),
                                      insertbackground=T('ACCENT'),
-                                     highlightthickness=0)
-        self._l_user.pack(side='left', fill='x', expand=True)
-        if saved_ids:
-            self._l_user.bind('<<ComboboxSelected>>', self._on_login_select)
+                                     highlightthickness=0, relief='flat')
+            self._l_user.pack(side='left', fill='x', expand=True, ipady=7)
+        _sep()
 
-        tk.Frame(card, bg=T('BORDER'), height=1).pack(fill='x')
-
-        # Parol satri
-        _row2 = tk.Frame(card, bg=T('CARD'), padx=14, pady=10)
-        _row2.pack(fill='x')
-        tk.Label(_row2, text='Parol',
-                 font=('Segoe UI', 9), fg=T('ACCENT'), bg=T('CARD'),
-                 width=6, anchor='w').pack(side='left')
+        # Parol
+        f_pass = _row('Parol')
         self._pass_visible = False
-        self._l_pass = tk.Entry(_row2, show='•', font=('Segoe UI', 11),
+        self._l_pass = tk.Entry(f_pass, show='\u2022', font=('Segoe UI', 11),
                                  bd=0, bg=T('CARD'), fg=T('FG'),
                                  insertbackground=T('ACCENT'),
-                                 highlightthickness=0)
-        self._l_pass.pack(side='left', fill='x', expand=True)
+                                 highlightthickness=0, relief='flat')
+        self._l_pass.pack(side='left', fill='x', expand=True, ipady=7)
         self._l_pass.bind('<Return>', lambda e: self._do_login())
-        self._l_eye = tk.Label(_row2, text='○', font=('Segoe UI', 13),
-                                fg=T('FGD'), bg=T('CARD'), cursor='hand2')
-        self._l_eye.pack(side='right', padx=4)
+        self._l_eye = tk.Label(f_pass, text='\U0001f441',
+                                font=('Segoe UI', 11), fg=T('FGD'),
+                                bg=T('CARD'), cursor='hand2', padx=8)
+        self._l_eye.pack(side='right', pady=(8, 0))
         self._l_eye.bind('<Button-1>', lambda e: self._toggle_pass())
 
-        # Xato xabari
+        # Xato
         self._l_err = tk.Label(root, text='', font=('Segoe UI', 9),
-                                fg=T('RED'), bg=T('BG'), wraplength=380)
-        self._l_err.pack(pady=(8, 0))
+                                fg=T('RED'), bg=T('BG'), wraplength=360, justify='left')
+        self._l_err.pack(pady=(10, 0), padx=24, anchor='w')
 
         # Kirish tugmasi
-        _btn_frame = tk.Frame(root, bg=T('BG'))
-        _btn_frame.pack(fill='x', padx=24, pady=(10, 0))
-        self._l_btn = tk.Button(_btn_frame,
-                                 text=f'→  {S("enter")}',
-                                 command=self._do_login,
-                                 bg=T('ACCENT'), fg='white',
-                                 font=('Segoe UI', 11, 'bold'),
-                                 relief='flat', bd=0,
-                                 pady=11, cursor='hand2',
-                                 activebackground=T('BTN_HOVER'),
-                                 activeforeground='white')
-        self._l_btn.pack(fill='x')
+        tk.Frame(root, bg=T('BG'), height=6).pack()
+        btn_wrap = tk.Frame(root, bg=T('BTN_HOVER'), padx=1, pady=1)
+        btn_wrap.pack(fill='x', padx=24)
+        _btn = tk.Button(btn_wrap,
+                         text=f'\u2192  {S("enter")}',
+                         command=self._do_login,
+                         bg=T('ACCENT'), fg='white',
+                         font=('Segoe UI', 11, 'bold'),
+                         relief='flat', bd=0, pady=12,
+                         cursor='hand2',
+                         activebackground=T('BTN_HOVER'),
+                         activeforeground='white')
+        _btn.pack(fill='x')
 
-        # set_text / set_enabled shims
-        class _BtnProxy:
-            def __init__(self, btn): self._b = btn
+        class _Proxy:
+            def __init__(self, b): self._b = b
             def set_text(self, t): self._b.config(text=t)
-            def set_enabled(self, v): self._b.config(state='normal' if v else 'disabled')
-        _orig = self._l_btn
-        self._l_btn = _BtnProxy(_orig)
-        self._l_btn._btn_widget = _orig  # direct access if needed
-
+            def set_enabled(self, v):
+                self._b.config(state='normal' if v else 'disabled',
+                               bg=T('ACCENT') if v else T('FGD'))
+        self._l_btn = _Proxy(_btn)
         self._l_user.focus()
 
     def _on_login_select(self, event=None):
