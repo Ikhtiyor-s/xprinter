@@ -1955,9 +1955,9 @@ class SettingsWindow:
         else:
             self._show_login()
 
-    # ── LOGIN FRAME ───────────────────────────────────────────
+    # ── LOGIN FRAME — iOS 18 ──────────────────────────────────────
     def _show_login(self):
-        self.win.geometry("480x640" if IS_TEST else "480x570")
+        self.win.geometry("440x540" if IS_TEST else "440x480")
         if self._main_frame:
             self._main_frame.pack_forget()
         if self._login_frame:
@@ -1965,185 +1965,127 @@ class SettingsWindow:
 
         self._saved_logins = load_saved_logins()
 
-        # ── Root: soft gradient-like bg ─────────────────────
-        root = tk.Frame(self._content, bg='#eef2ff')
+        # Root
+        root = tk.Frame(self._content, bg=T('BG'))
         root.pack(fill='both', expand=True)
         self._login_frame = root
 
-        tk.Frame(root, bg='#eef2ff', height=10).pack()
+        # ── Logo + Title ─────────────────────────────────────────────
+        top = tk.Frame(root, bg=T('BG'))
+        top.pack(pady=(32, 20))
 
-        # ── Card shadow layers ───────────────────────────────
-        _sh = tk.Frame(root, bg='#c7d2fe')
-        _sh.pack(padx=16, pady=(0, 6))
-        _sh2 = tk.Frame(_sh, bg='#dde4fb', padx=1, pady=1)
-        _sh2.pack(padx=2, pady=2)
-        _cb = tk.Frame(_sh2, bg='#e0e7ff', padx=1, pady=1)
-        _cb.pack()
-        card = tk.Frame(_cb, bg='white', padx=26, pady=0)
-        card.pack()
-
-        # ── Gradient accent strip at top ─────────────────────
-        try:
-            from PIL import Image, ImageDraw, ImageTk
-            _SW = 428
-            _si = Image.new('RGBA', (_SW * 2, 12), (0, 0, 0, 0))
-            _sd = ImageDraw.Draw(_si)
-            _sc1, _sc2 = (79, 70, 229), (124, 58, 237)
-            for _x in range(_SW * 2):
-                _t  = _x / max(_SW * 2 - 1, 1)
-                _sd.line([(_x, 0), (_x, 11)],
-                         fill=tuple(int(_sc1[i]*(1-_t)+_sc2[i]*_t) for i in range(3))+(255,))
-            _si_ref = ImageTk.PhotoImage(_si.resize((_SW, 6), Image.LANCZOS))
-            _sl = tk.Label(card, image=_si_ref, bg='white', bd=0)
-            _sl.image = _si_ref
-            _sl.pack(fill='x', pady=(0, 10))
-        except Exception:
-            tk.Frame(card, bg='#6366f1', height=6).pack(fill='x', pady=(0, 10))
-
-        # ── Logo ─────────────────────────────────────────────
         try:
             from PIL import Image, ImageTk
             _base = os.path.dirname(os.path.abspath(__file__))
-            _ico_path = os.path.join(_base, 'icon.png')
-            if not os.path.exists(_ico_path):
-                _ico_path = os.path.join(BASE_DIR, 'icon.png')
-            _logo_img = Image.open(_ico_path).resize((72, 72), Image.LANCZOS).convert('RGBA')
-            _logo_ref = ImageTk.PhotoImage(_logo_img)
-            _bl = tk.Label(card, image=_logo_ref, bg='white', bd=0)
-            _bl.image = _logo_ref
-            _bl.pack(pady=(0, 6))
+            _p = os.path.join(_base, 'icon.png')
+            if not os.path.exists(_p):
+                _p = os.path.join(_base, 'icon.ico')
+            _img = ImageTk.PhotoImage(Image.open(_p).resize((64, 64), Image.LANCZOS))
+            _lbl = tk.Label(top, image=_img, bg=T('BG'))
+            _lbl.image = _img
+            _lbl.pack()
         except Exception:
-            tk.Label(card, text='', font=('Segoe UI', 28), bg='white').pack(pady=(0, 6))
+            tk.Label(top, text='🖨', font=('Segoe UI', 32), bg=T('BG')).pack()
 
-        # ── Title + subtitle ─────────────────────────────────
-        title_row = tk.Frame(card, bg="white")
-        title_row.pack()
-        tk.Label(title_row, text="NONBOR PRINT AGENT",
-                 font=("Segoe UI", 14, "bold"), fg="#1e293b", bg="white").pack(side="left")
+        title_row = tk.Frame(top, bg=T('BG'))
+        title_row.pack(pady=(8, 0))
+        tk.Label(title_row, text='NONBOR PRINT AGENT',
+                 font=('Segoe UI', 13, 'bold'), fg=T('FG'), bg=T('BG')).pack(side='left')
         if IS_TEST:
-            tk.Label(title_row, text=" TEST ", font=("Segoe UI", 9, "bold"),
-                     fg="white", bg="#ef4444").pack(side="left", padx=(6,0), pady=3)
-        tk.Label(card, text='nonbor.uz \u2022 Chop etish agenti',
-                 font=('Segoe UI', 9), fg='#94a3b8', bg='white').pack(pady=(2, 10))
+            tk.Label(title_row, text='  TEST ', font=('Segoe UI', 9, 'bold'),
+                     fg='white', bg=T('RED')).pack(side='left', padx=(6, 0), pady=2)
+        tk.Label(top, text='nonbor.uz', font=('Segoe UI', 9),
+                 fg=T('FGD'), bg=T('BG')).pack()
 
-        # ── Thin divider ─────────────────────────────────────
-        tk.Frame(card, bg='#e2e8f0', height=1).pack(fill='x', pady=(0, 10))
+        # ── Form card ────────────────────────────────────────────────
+        card = tk.Frame(root, bg=T('CARD'),
+                        highlightbackground=T('BORDER'), highlightthickness=1)
+        card.pack(fill='x', padx=24)
 
-        # ── Rounded input helper ─────────────────────────────
-        INP_W, INP_H = 380, 42
-
-        def _make_border(bc):
-            from PIL import Image, ImageDraw, ImageTk
-            im = Image.new('RGBA', (INP_W * 2, INP_H * 2), (0, 0, 0, 0))
-            id_ = ImageDraw.Draw(im)
-            rgb = tuple(int(bc.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-            id_.rounded_rectangle([0, 0, INP_W*2-1, INP_H*2-1],
-                                   radius=22, fill=(255, 255, 255, 255),
-                                   outline=rgb + (255,), width=4)
-            return ImageTk.PhotoImage(im.resize((INP_W, INP_H), Image.LANCZOS))
-
-        def _field(label_text, default='', values=None, show=''):
-            fw = tk.Frame(card, bg='white')
-            fw.pack(fill='x', pady=(0, 7))
-            tk.Label(fw, text=label_text, font=('Segoe UI', 8, 'bold'),
-                     fg='#6366f1', bg='white', anchor='w').pack(fill='x', pady=(0, 3))
-            try:
-                cnv = tk.Canvas(fw, width=INP_W, height=INP_H,
-                                bd=0, highlightthickness=0, bg='white')
-                cnv.pack()
-                _n  = _make_border('#e2e8f0')
-                _f  = _make_border('#6366f1')
-                cnv.create_image(0, 0, anchor='nw', image=_n, tags='bd')
-                fw._n, fw._f = _n, _f
-
-                if values is not None:
-                    ent = ttk.Combobox(cnv, values=values, font=('Segoe UI', 10))
-                elif show:
-                    ent = ttk.Entry(cnv, font=('Segoe UI', 10), show=show)
-                else:
-                    ent = ttk.Entry(cnv, font=('Segoe UI', 10))
-                ent.insert(0, default)
-                cnv.create_window(INP_W // 2, INP_H // 2, anchor='center',
-                                  window=ent, width=INP_W - 22, height=INP_H - 14)
-
-                def _fi(e): cnv.itemconfig('bd', image=fw._f)
-                def _fb(e): cnv.itemconfig('bd', image=fw._n)
-                ent.bind('<FocusIn>',  _fi)
-                ent.bind('<FocusOut>', _fb)
-            except Exception:
-                if values is not None:
-                    ent = ttk.Combobox(fw, values=values, font=('Segoe UI', 10))
-                elif show:
-                    ent = ttk.Entry(fw, font=('Segoe UI', 10), show=show)
-                else:
-                    ent = ttk.Entry(fw, font=('Segoe UI', 10))
-                ent.insert(0, default)
-                ent.pack(fill='x', ipady=5)
-            return ent
-
-        # Test rejimda server URL maydoni
+        # Test: server URL maydoni
         self._l_server = None
         if IS_TEST:
-            self._l_server = _field('Server URL', default=TEST_SERVER or 'http://localhost:9090')
+            _srv_frame = tk.Frame(card, bg=T('CARD'))
+            _srv_frame.pack(fill='x')
+            _srv_lbl = tk.Frame(_srv_frame, bg=T('CARD'), padx=14, pady=10)
+            _srv_lbl.pack(fill='x')
+            tk.Label(_srv_lbl, text='Server URL',
+                     font=('Segoe UI', 9), fg=T('ACCENT'), bg=T('CARD'),
+                     width=10, anchor='w').pack(side='left')
+            self._l_server = tk.Entry(_srv_lbl, font=('Segoe UI', 11),
+                                       bd=0, bg=T('CARD'), fg=T('FG'),
+                                       insertbackground=T('ACCENT'),
+                                       highlightthickness=0)
+            self._l_server.insert(0, TEST_SERVER or 'http://localhost:9090')
+            self._l_server.pack(side='left', fill='x', expand=True)
+            tk.Frame(card, bg=T('BORDER'), height=1).pack(fill='x', padx=0)
 
-        # Seller ID
+        # Login satri
+        _row1 = tk.Frame(card, bg=T('CARD'), padx=14, pady=10)
+        _row1.pack(fill='x')
+        tk.Label(_row1, text='Login',
+                 font=('Segoe UI', 9), fg=T('ACCENT'), bg=T('CARD'),
+                 width=6, anchor='w').pack(side='left')
         saved_ids = [l['username'] for l in self._saved_logins]
-        self._l_user = _field('Login', values=saved_ids)
-        self._l_user.bind('<<ComboboxSelected>>', self._on_login_select)
+        if saved_ids:
+            self._l_user = ttk.Combobox(_row1, values=saved_ids,
+                                         font=('Segoe UI', 11), state='normal')
+        else:
+            self._l_user = tk.Entry(_row1, font=('Segoe UI', 11),
+                                     bd=0, bg=T('CARD'), fg=T('FG'),
+                                     insertbackground=T('ACCENT'),
+                                     highlightthickness=0)
+        self._l_user.pack(side='left', fill='x', expand=True)
+        if saved_ids:
+            self._l_user.bind('<<ComboboxSelected>>', self._on_login_select)
 
-        # ── API Secret row (with eye toggle) ─────────────────
-        pfw = tk.Frame(card, bg='white')
-        pfw.pack(fill='x', pady=(0, 4))
-        tk.Label(pfw, text='Parol', font=('Segoe UI', 8, 'bold'),
-                 fg='#6366f1', bg='white', anchor='w').pack(fill='x', pady=(0, 3))
+        tk.Frame(card, bg=T('BORDER'), height=1).pack(fill='x')
+
+        # Parol satri
+        _row2 = tk.Frame(card, bg=T('CARD'), padx=14, pady=10)
+        _row2.pack(fill='x')
+        tk.Label(_row2, text='Parol',
+                 font=('Segoe UI', 9), fg=T('ACCENT'), bg=T('CARD'),
+                 width=6, anchor='w').pack(side='left')
         self._pass_visible = False
-        try:
-            pcnv = tk.Canvas(pfw, width=INP_W, height=INP_H,
-                             bd=0, highlightthickness=0, bg='white')
-            pcnv.pack()
-            _pn = _make_border('#e2e8f0')
-            _pf = _make_border('#6366f1')
-            pcnv.create_image(0, 0, anchor='nw', image=_pn, tags='bd')
-            pfw._n, pfw._f = _pn, _pf
+        self._l_pass = tk.Entry(_row2, show='•', font=('Segoe UI', 11),
+                                 bd=0, bg=T('CARD'), fg=T('FG'),
+                                 insertbackground=T('ACCENT'),
+                                 highlightthickness=0)
+        self._l_pass.pack(side='left', fill='x', expand=True)
+        self._l_pass.bind('<Return>', lambda e: self._do_login())
+        self._l_eye = tk.Label(_row2, text='○', font=('Segoe UI', 13),
+                                fg=T('FGD'), bg=T('CARD'), cursor='hand2')
+        self._l_eye.pack(side='right', padx=4)
+        self._l_eye.bind('<Button-1>', lambda e: self._toggle_pass())
 
-            _inner = tk.Frame(pcnv, bg='white')
-            pcnv.create_window(INP_W // 2, INP_H // 2, anchor='center',
-                               window=_inner, width=INP_W - 22, height=INP_H - 14)
+        # Xato xabari
+        self._l_err = tk.Label(root, text='', font=('Segoe UI', 9),
+                                fg=T('RED'), bg=T('BG'), wraplength=380)
+        self._l_err.pack(pady=(8, 0))
 
-            self._l_pass = ttk.Entry(_inner, font=('Segoe UI', 10), show='\u2022')
-            self._l_pass.pack(side='left', fill='both', expand=True)
-            self._l_pass.bind('<Return>', lambda e: self._do_login())
+        # Kirish tugmasi
+        _btn_frame = tk.Frame(root, bg=T('BG'))
+        _btn_frame.pack(fill='x', padx=24, pady=(10, 0))
+        self._l_btn = tk.Button(_btn_frame,
+                                 text=f'→  {S("enter")}',
+                                 command=self._do_login,
+                                 bg=T('ACCENT'), fg='white',
+                                 font=('Segoe UI', 11, 'bold'),
+                                 relief='flat', bd=0,
+                                 pady=11, cursor='hand2',
+                                 activebackground=T('BTN_HOVER'),
+                                 activeforeground='white')
+        self._l_btn.pack(fill='x')
 
-            self._l_eye = tk.Label(_inner, text='\U0001f441', bg='white', fg='#94a3b8',
-                                   font=('Segoe UI', 11), cursor='hand2')
-            self._l_eye.pack(side='right', padx=(4, 0))
-            self._l_eye.bind('<Button-1>', lambda e: self._toggle_pass())
-
-            def _pfi(e): pcnv.itemconfig('bd', image=pfw._f)
-            def _pfb(e): pcnv.itemconfig('bd', image=pfw._n)
-            self._l_pass.bind('<FocusIn>',  _pfi)
-            self._l_pass.bind('<FocusOut>', _pfb)
-        except Exception:
-            _pr2 = tk.Frame(pfw, bg='white')
-            _pr2.pack(fill='x')
-            self._l_pass = ttk.Entry(_pr2, font=('Segoe UI', 10), show='\u2022')
-            self._l_pass.pack(side='left', fill='x', expand=True, ipady=5)
-            self._l_pass.bind('<Return>', lambda e: self._do_login())
-            self._l_eye = tk.Label(_pr2, text='\U0001f441', bg='white', fg='#94a3b8',
-                                   font=('Segoe UI', 11), cursor='hand2')
-            self._l_eye.pack(side='right', padx=(4, 0))
-            self._l_eye.bind('<Button-1>', lambda e: self._toggle_pass())
-
-        # ── Error label ──────────────────────────────────────
-        self._l_err = tk.Label(card, text='', font=('Segoe UI', 9),
-                               fg='#ef4444', bg='white',
-                               wraplength=370, justify='left')
-        self._l_err.pack(fill='x', pady=(4, 2))
-
-        # ── Gradient Kirish button ───────────────────────────
-        self._l_btn = _GradBtn(card, f'\u2192  {S("enter")}',
-                               self._do_login, w=380, h=46, bg='white')
-        self._l_btn.pack(pady=(4, 20))
+        # set_text / set_enabled shims
+        class _BtnProxy:
+            def __init__(self, btn): self._b = btn
+            def set_text(self, t): self._b.config(text=t)
+            def set_enabled(self, v): self._b.config(state='normal' if v else 'disabled')
+        _orig = self._l_btn
+        self._l_btn = _BtnProxy(_orig)
+        self._l_btn._btn_widget = _orig  # direct access if needed
 
         self._l_user.focus()
 
