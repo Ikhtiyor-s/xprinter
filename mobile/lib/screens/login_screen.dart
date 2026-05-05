@@ -122,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       _Field(
                         controller: _serverCtrl,
                         label: "Server URL",
-                        hint: "http://localhost  yoki  http://192.168.X.X",
+                        hint: "http://192.168.0.118",
                         icon: CupertinoIcons.globe,
                         keyboardType: TextInputType.url,
                         isLast: false,

@@ -2049,7 +2049,7 @@ class SettingsWindow:
         # Server URL (test)
         self._l_server = None
         if IS_TEST:
-            srv_e, _ = _pill_field('http://localhost')
+            srv_e, _ = _pill_field('http://192.168.0.118')
             if TEST_SERVER:
                 srv_e.delete(0, 'end')
                 srv_e.config(fg=TEXT)
