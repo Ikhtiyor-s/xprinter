@@ -236,32 +236,98 @@ class PrintJobSerializer(serializers.ModelSerializer):
 
 
 class PrintOrderSerializer(serializers.Serializer):
-    """Buyurtmani chop etish uchun"""
-    business_id = serializers.IntegerField()
-    order_id = serializers.IntegerField()
-    items = serializers.ListField(
-        child=serializers.DictField(),
-        help_text="[{name, quantity, price, product_id, category_id, category_name}]"
-    )
+    """
+    Buyurtmani chop etish uchun.
+    Ikkita format qabul qilinadi:
 
-    # Umumiy order fieldlari
-    order_number = serializers.CharField(max_length=50, required=False, default='', allow_blank=True)
-    business_name = serializers.CharField(max_length=200, required=False, default='', allow_blank=True)
-    customer_name = serializers.CharField(max_length=200, required=False, default='', allow_blank=True)
-    customer_phone = serializers.CharField(max_length=20, required=False, default='', allow_blank=True)
-    customer_address = serializers.CharField(required=False, default='', allow_blank=True)
-    delivery_method = serializers.CharField(max_length=20, required=False, default='', allow_blank=True)
-    payment_method = serializers.CharField(max_length=20, required=False, default='', allow_blank=True)
-    order_type = serializers.CharField(max_length=20, required=False, default='', allow_blank=True)
-    scheduled_time = serializers.CharField(required=False, default='', allow_blank=True)
-    comment = serializers.CharField(required=False, default='', allow_blank=True)
+    1. Flat format (to'g'ridan):
+       { business_id, order_id, items: [...], customer_name, ... }
+
+    2. Nested format (nonbor-admin webhook):
+       { business_id, service_type, copies, trigger,
+         order: { id, state, client_name, client_phone, items, ... } }
+    """
+    business_id  = serializers.IntegerField()
+    # items top-level (flat format)
+    items = serializers.ListField(
+        child=serializers.DictField(), required=False, default=list,
+        help_text="[{product_name|name, quantity, price, ...}]"
+    )
+    # Nested order object (webhook format)
+    order = serializers.DictField(required=False, default=dict)
+
+    # Meta
+    service_type = serializers.CharField(required=False, default='nonbor', allow_blank=True)
+    copies       = serializers.IntegerField(required=False, default=1)
+    trigger      = serializers.CharField(required=False, default='', allow_blank=True)
+
+    # Flat fields (ham flat, ham order ichidan olinadi)
+    order_id        = serializers.CharField(max_length=100, required=False, default='', allow_blank=True)
+    order_number    = serializers.CharField(max_length=100, required=False, default='', allow_blank=True)
+    business_name   = serializers.CharField(max_length=200, required=False, default='', allow_blank=True)
+    customer_name   = serializers.CharField(max_length=200, required=False, default='', allow_blank=True)
+    customer_phone  = serializers.CharField(max_length=50,  required=False, default='', allow_blank=True)
+    customer_address= serializers.CharField(required=False, default='', allow_blank=True)
+    delivery_method = serializers.CharField(max_length=50,  required=False, default='', allow_blank=True)
+    payment_method  = serializers.CharField(max_length=200, required=False, default='', allow_blank=True)
+    order_type      = serializers.CharField(max_length=100, required=False, default='', allow_blank=True)
+    scheduled_time  = serializers.CharField(required=False, default='', allow_blank=True)
+    comment         = serializers.CharField(required=False, default='', allow_blank=True)
+    total_price     = serializers.FloatField(required=False, default=0)
+
+    def to_internal_value(self, data):
+        result = super().to_internal_value(data)
+
+        # Nested order dan flat maydonlarga ko'chirish
+        order = result.get('order') or {}
+        if order:
+            def _get(*keys):
+                for k in keys:
+                    v = order.get(k, '')
+                    if v:
+                        return str(v)
+                return ''
+
+            if not result.get('order_id'):
+                result['order_id'] = str(order.get('id', ''))
+            if not result.get('order_number'):
+                result['order_number'] = str(order.get('order_number', '') or order.get('id', ''))
+            if not result.get('customer_name'):
+                result['customer_name'] = _get('client_name', 'customer_name', 'user')
+            if not result.get('customer_phone'):
+                result['customer_phone'] = _get('client_phone', 'customer_phone', 'phone')
+            if not result.get('customer_address'):
+                result['customer_address'] = _get('delivery_address', 'customer_address', 'address')
+            if not result.get('delivery_method'):
+                result['delivery_method'] = _get('delivery_type', 'delivery_method')
+            if not result.get('payment_method'):
+                result['payment_method'] = _get('payment_type', 'payment_method')
+            if not result.get('comment'):
+                result['comment'] = _get('pre_comment', 'comment')
+            if not result.get('total_price'):
+                result['total_price'] = order.get('total_price', 0) or 0
+
+            # Items nested order dan
+            if not result.get('items'):
+                raw_items = order.get('items') or order.get('order_items') or []
+                items = []
+                for it in raw_items:
+                    items.append({
+                        'name':       it.get('product_name') or it.get('name', ''),
+                        'quantity':   it.get('quantity', 1),
+                        'price':      it.get('price', 0),
+                        'product_id': it.get('product_id') or it.get('id'),
+                    })
+                result['items'] = items
+
+        return result
 
 
 class WebhookSerializer(serializers.Serializer):
-    """Nonbor webhook - buyurtma statusi o'zgarganda"""
-    order_id = serializers.IntegerField()
+    """Nonbor/POS webhook - buyurtma statusi o'zgarganda"""
+    order_id = serializers.CharField(max_length=100)   # UUID yoki int
     business_id = serializers.IntegerField()
-    state = serializers.CharField()
+    state = serializers.CharField(required=False, default='ACCEPTED', allow_blank=True)
     items = serializers.ListField(child=serializers.DictField(), required=False, default=list)
 
     # Umumiy order fieldlari

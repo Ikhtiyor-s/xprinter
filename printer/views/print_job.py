@@ -154,25 +154,29 @@ class PrintOrderView(APIView):
         serializer.is_valid(raise_exception=True)
 
         data = serializer.validated_data
-        data['order_id'] = order_id
+        if not data.get('order_id'):
+            data['order_id'] = str(order_id)
 
         order_data = {
-            'order_id': order_id,
-            'order_number': data.get('order_number', str(order_id)),
-            'business_name': data.get('business_name', ''),
-            'customer_name': data.get('customer_name', ''),
+            'order_id':       data.get('order_id', str(order_id)),
+            'order_number':   data.get('order_number') or str(order_id),
+            'business_name':  data.get('business_name', ''),
+            'customer_name':  data.get('customer_name', ''),
             'customer_phone': data.get('customer_phone', ''),
             'customer_address': data.get('customer_address', ''),
-            'delivery_method': data.get('delivery_method', ''),
-            'payment_method': data.get('payment_method', ''),
-            'order_type': data.get('order_type', ''),
-            'scheduled_time': data.get('scheduled_time', ''),
-            'comment': data.get('comment', ''),
+            'delivery_method':  data.get('delivery_method', ''),
+            'payment_method':   data.get('payment_method', ''),
+            'order_type':      data.get('order_type', ''),
+            'scheduled_time':  data.get('scheduled_time', ''),
+            'comment':         data.get('comment', ''),
+            'total_price':     data.get('total_price', 0),
+            'service_type':    data.get('service_type', 'nonbor'),
+            'copies':          data.get('copies', 1),
         }
 
         jobs = print_order(
             order_data=order_data,
-            items=data['items'],
+            items=data.get('items') or [],
             business_id=data['business_id'],
         )
 
