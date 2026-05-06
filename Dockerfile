@@ -14,7 +14,8 @@ RUN pip install --no-cache-dir \
     django-cors-headers==4.4.0 \
     requests==2.32.3 \
     Pillow==11.2.1 \
-    gunicorn==22.0.0
+    gunicorn==22.0.0 \
+    python-dotenv==1.0.1
 
 # Copy project
 COPY . .

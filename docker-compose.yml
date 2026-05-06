@@ -4,18 +4,20 @@ services:
     container_name: xprinter-server
     ports:
       - "9000:9000"
-      - "9090:9000"
     volumes:
       - xprinter_data:/data
-    restart: unless-stopped
+    env_file:
+      - .env
     environment:
       - DJANGO_SETTINGS_MODULE=settings
       - PYTHONUNBUFFERED=1
-      - DEBUG=${DEBUG:-false}
-      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY .env da o'rnatilishi shart}
-      - XPRINTER_API_KEY=${XPRINTER_API_KEY:?XPRINTER_API_KEY .env da o'rnatilishi shart}
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET:?WEBHOOK_SECRET .env da o'rnatilishi shart}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - DB_PATH=/data/xprinter.sqlite3
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/api/v2/health/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   xprinter_data:
