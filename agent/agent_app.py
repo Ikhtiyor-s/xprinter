@@ -815,6 +815,15 @@ class Agent:
             ok, err = do_print(p_cfg, content)
 
             try:
+                # Xprinter job complete (proxy orqali)
+                _xprinter_post(
+                    'api/xprinter-in/agent/complete',
+                    {'job_id': jid,
+                     'status': 'completed' if ok else 'failed',
+                     'error': err or ''},
+                    username=uname, password=self.api_secret,
+                )
+                # Natija (print-result ham yuboramiz)
                 _xprinter_post(
                     'api/xprinter-in/print-result',
                     {'order_id': jid, 'business_id': self.seller_id,
