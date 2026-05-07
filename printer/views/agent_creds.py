@@ -168,36 +168,40 @@ class NonborMenuView(APIView):
                     'error': 'Nonbor API sozlamasi topilmadi. Admin "Nonbor API" tabida sozlash kerak.',
                 }, status=404)
 
-        # Nonbor API dan mahsulotlar
-        # products/?business=<id> — barcha mahsulotlar (menu_categoriyasiz ham)
-        # products-by-category/ faqat menu_category ga biriktirilganlarni qaytaradi
-        api = NonborAPI(config)
+        # Mahsulotlarni admin.nonbor dan olish (asosiy manba)
+        # GET {ADMIN_NONBOR_URL}/api/xprinter-in/sync/{business_id}
+        # Fallback: to'g'ridan Nonbor prod API
+        import requests as _req_lib
         all_raw = []
-        page = 1
-        while True:
-            data = api._get(
-                'products/',
-                params={'business': business_id, 'page': page, 'page_size': 100}
-            )
-            if not data:
-                break
-            result = data.get('result', data) if isinstance(data, dict) else data
-            if isinstance(result, dict):
-                result = result.get('results', [])
-            if not result:
-                break
-            all_raw.extend(result)
-            if len(result) < 100:
-                break
-            page += 1
 
-        # bo'sh bo'lsa products-by-category/ ga fallback
+        admin_url = os.environ.get('ADMIN_NONBOR_URL', '').rstrip('/')
+        xprinter_key = os.environ.get('XPRINTER_API_KEY', 'xprinter-secret-keys')
+
+        if admin_url:
+            try:
+                sync_resp = _req_lib.get(
+                    f"{admin_url}/api/xprinter-in/sync/{business_id}",
+                    headers={'X-API-Key': xprinter_key, 'Accept': 'application/json'},
+                    timeout=15,
+                )
+                if sync_resp.status_code == 200:
+                    sync_data = sync_resp.json()
+                    if sync_data.get('success'):
+                        biz = sync_data.get('business', {})
+                        # products to'g'ri keladi
+                        all_raw = biz.get('products', [])
+                        logger.info(f"[Menu] admin.nonbor dan {len(all_raw)} mahsulot olindi (bid={business_id})")
+            except Exception as e:
+                logger.warning(f"[Menu] admin.nonbor sync xato: {e} — Nonbor API ga fallback")
+
+        # Fallback: to'g'ridan Nonbor prod API
         if not all_raw:
+            api = NonborAPI(config)
             page = 1
             while True:
                 data = api._get(
                     f'business/{business_id}/products-by-category/',
-                    params={'page': page, 'page_size': 100}
+                    params={'page': page, 'page_size': 200}
                 )
                 if not data:
                     break
@@ -207,9 +211,10 @@ class NonborMenuView(APIView):
                 if not result:
                     break
                 all_raw.extend(result)
-                if len(result) < 100:
+                if len(result) < 200:
                     break
                 page += 1
+            logger.info(f"[Menu] Nonbor API fallback dan {len(all_raw)} mahsulot (bid={business_id})")
 
         products = []
         seen_ids = set()
@@ -217,23 +222,24 @@ class NonborMenuView(APIView):
             pid = p.get('id')
             if pid in seen_ids:
                 continue
-            # Faqat shu biznesga tegishli mahsulotlar
-            p_biz = p.get('business')
-            if isinstance(p_biz, dict):
-                p_biz_id = p_biz.get('id')
-            elif isinstance(p_biz, (int, str)):
-                p_biz_id = int(p_biz) if str(p_biz).isdigit() else None
-            else:
-                p_biz_id = None
-            if p_biz_id is not None and p_biz_id != business_id:
-                continue
             seen_ids.add(pid)
-            mc = p.get('menu_category') or {}
-            cat = p.get('category') or {}
-            # Kategoriya nomi: menu_category ustun, bo'lmasa category
-            # Encoding xatosi bo'lgan (garbled) nomlar uchun category.name ga fallback
-            mc_name = mc.get('name', '') or ''
-            cat_name_raw = cat.get('name', '') or ''
+
+            # admin.nonbor → category: "Kategoriya nomi" (string), category_id: int
+            # Nonbor prod API → category: {id, name} (dict), menu_category: {id, name} (dict)
+            cat_raw = p.get('category')
+            mc_raw  = p.get('menu_category')
+
+            if isinstance(cat_raw, str):
+                # admin.nonbor formati
+                mc_name      = cat_raw
+                cat_name_raw = cat_raw
+                mc = {'id': p.get('category_id'), 'name': cat_raw}
+                cat = mc
+            else:
+                mc  = (mc_raw if isinstance(mc_raw, dict) else {}) or {}
+                cat = (cat_raw if isinstance(cat_raw, dict) else {}) or {}
+                mc_name      = mc.get('name', '') or ''
+                cat_name_raw = cat.get('name', '') or ''
             # Agar mc_name o'qilishi qiyin (lot of non-latin/non-uzbek) bo'lsa,
             # latin-1 → utf-8 decode urinib ko'r, aks holda category.name ishlatamiz
             def _safe_cat(s, fallback):

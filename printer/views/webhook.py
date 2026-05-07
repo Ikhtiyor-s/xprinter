@@ -75,13 +75,23 @@ def _notify_admin_printed(order_id, business_id, jobs):
     import threading
     import requests as _req
 
-    config = NonborConfig.objects.filter(business_id=business_id, is_active=True).first()
-    if not config or not config.api_url:
-        return
+    # ADMIN_NONBOR_URL env var (to'g'ri yo'l) yoki NonborConfig.api_url dan derive
+    admin_url = os.environ.get('ADMIN_NONBOR_URL', '').rstrip('/')
+    if not admin_url:
+        config = NonborConfig.objects.filter(business_id=business_id, is_active=True).first()
+        if not config or not config.api_url:
+            return
+        admin_url = config.api_url.rstrip('/').removesuffix('/api/v2').removesuffix('/api')
 
-    # api_url: "https://prod.nonbor.uz/api/v2" → base: "https://prod.nonbor.uz"
-    base_url = config.api_url.rstrip('/').removesuffix('/api/v2').removesuffix('/api')
-    callback_url = f"{base_url}/api/webhook/xprinter"
+    callback_url = f"{admin_url}/api/webhook/xprinter"
+
+    # Callback header uchun secret — admin.nonbor kutayotgan secret
+    # ADMIN_NONBOR_WEBHOOK_SECRET = admin.nonbor webhook_secret (admin-secret-keys)
+    # WEBHOOK_SECRET = xprinter o'zi uchun (tashqi so'rovlarni tekshirish uchun)
+    webhook_secret = (
+        os.environ.get('ADMIN_NONBOR_WEBHOOK_SECRET') or
+        os.environ.get('WEBHOOK_SECRET', '')
+    )
 
     completed = [j for j in jobs if j.status == PrintJob.STATUS_COMPLETED]
     failed = [j for j in jobs if j.status == PrintJob.STATUS_FAILED]
@@ -115,8 +125,8 @@ def _notify_admin_printed(order_id, business_id, jobs):
     }
 
     headers = {"Content-Type": "application/json"}
-    if config.api_secret:
-        headers["X-Webhook-Secret"] = config.api_secret
+    if webhook_secret:
+        headers["X-Webhook-Secret"] = webhook_secret
 
     def _send():
         try:
