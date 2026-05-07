@@ -15,41 +15,64 @@ logger = logging.getLogger(__name__)
 
 class AgentTokenAuthentication(authentication.BaseAuthentication):
     """Print Agent autentifikatsiyasi.
-    Header: Authorization: Agent <username>:<password>
-    Yoki POST body: username + password
+    Usul 1 (yangi): Authorization: Bearer <token>
+    Usul 2 (eski):  Authorization: Agent <username>:<password>
     """
 
     def authenticate(self, request):
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
 
-        if auth_header.startswith('Agent '):
-            token = auth_header[6:]
-            if ':' not in token:
-                return None
-            username, password = token.split(':', 1)
-        else:
-            # POST body dan o'qish (agent auth endpoint uchun)
-            username = (
-                request.data.get('username', '') if hasattr(request, 'data') else ''
-            ) or request.query_params.get('username', '')
-            password = (
-                request.data.get('password', '') if hasattr(request, 'data') else ''
-            ) or request.query_params.get('password', '')
+        # 1. Bearer token (yangi usul)
+        if auth_header.startswith('Bearer '):
+            raw_token = auth_header[7:].strip()
+            if raw_token:
+                return self._auth_by_token(raw_token)
 
+        # 2. Agent user:pass (eski usul — backward compat)
+        if auth_header.startswith('Agent '):
+            raw = auth_header[6:]
+            if ':' in raw:
+                username, password = raw.split(':', 1)
+                return self._auth_by_password(username.strip(), password.strip())
+
+        # 3. POST body
+        username = (
+            request.data.get('username', '') if hasattr(request, 'data') else ''
+        ) or request.query_params.get('username', '')
+        password = (
+            request.data.get('password', '') if hasattr(request, 'data') else ''
+        ) or request.query_params.get('password', '')
+        if username and password:
+            return self._auth_by_password(username.strip(), password.strip())
+
+        return None
+
+    def _auth_by_token(self, raw_token: str):
+        from printer.models import AgentSession
+        try:
+            session = AgentSession.objects.select_related('credential').get(
+                token=raw_token, is_active=True
+            )
+        except AgentSession.DoesNotExist:
+            return None
+        if not session.is_valid:
+            session.is_active = False
+            session.save(update_fields=['is_active'])
+            return None
+        cred = session.credential
+        if not cred.is_active:
+            return None
+        return (AgentUser(cred), session)
+
+    def _auth_by_password(self, username: str, password: str):
         if not username or not password:
             return None
-
-        username = username.strip()
-        password = password.strip()
-
         try:
             cred = AgentCredential.objects.get(username=username, is_active=True)
         except AgentCredential.DoesNotExist:
             return None
-
         if not cred.check_password(password):
             return None
-
         return (AgentUser(cred), cred)
 
 

@@ -253,6 +253,35 @@ class AgentCredential(models.Model):
         super().save(*args, **kwargs)
 
 
+class AgentSession(models.Model):
+    """Agent uchun token-based sessiya (30 kun)."""
+    import secrets as _secrets
+
+    credential = models.ForeignKey(
+        AgentCredential, on_delete=models.CASCADE, related_name='sessions'
+    )
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'agent_session'
+        verbose_name = 'Agent sessiya'
+
+    @classmethod
+    def create_for(cls, credential: 'AgentCredential') -> 'AgentSession':
+        import secrets
+        from datetime import timedelta
+        token = secrets.token_urlsafe(48)
+        expires = timezone.now() + timedelta(days=30)
+        return cls.objects.create(credential=credential, token=token, expires_at=expires)
+
+    @property
+    def is_valid(self) -> bool:
+        return self.is_active and self.expires_at > timezone.now()
+
+
 class NotificationConfig(models.Model):
     """Printer xatolik bildirishnomalari sozlamalari - har bir biznes uchun"""
 

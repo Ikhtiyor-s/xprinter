@@ -107,8 +107,12 @@ class AgentAuthView(APIView):
                 'error': 'Parol noto\'g\'ri',
             }, status=status.HTTP_401_UNAUTHORIZED)
 
+        from printer.models import AgentSession
+        session = AgentSession.create_for(cred)
+
         return Response({
             'success': True,
+            'token': session.token,
             'business_id': cred.business_id,
             'business_name': cred.business_name,
             'username': cred.username,
